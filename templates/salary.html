@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>员工工资查询系统 - 工资条</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: "Microsoft YaHei", "SimSun", -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #f5f7fa;
+            min-height: 100vh;
+            color: #1a2332;
+        }
+        .header {
+            background: #fff;
+            border-bottom: 1px solid #e8ecf1;
+            padding: 16px 32px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1a2332;
+        }
+        .header h1::before {
+            content: "";
+            display: inline-block;
+            width: 4px;
+            height: 16px;
+            background: #3b82f6;
+            border-radius: 2px;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            font-size: 13px;
+            color: #5a6a7a;
+        }
+        .logout-btn {
+            color: #3b82f6;
+            text-decoration: none;
+            font-size: 13px;
+            padding: 6px 14px;
+            border: 1px solid #dde3ea;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+        .logout-btn:hover {
+            background: #f0f4f8;
+            border-color: #3b82f6;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 24px auto;
+            padding: 0 24px;
+        }
+        .card {
+            background: #fff;
+            border-radius: 6px;
+            padding: 20px 24px;
+            margin-bottom: 16px;
+            border: 1px solid #e8ecf1;
+        }
+        .selector-card {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .salary-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+            border: 1px solid #fde68a;
+            border-radius: 6px;
+        }
+        @media (min-width: 600px) {
+            .salary-badge-wrapper {
+                margin-left: auto;
+            }
+        }
+        @media (max-width: 599px) {
+            .salary-badge-wrapper {
+                width: 100%;
+                display: flex;
+                justify-content: center;
+                margin-top: 12px;
+            }
+        }
+        .selector-form {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .selector-label {
+            font-size: 14px;
+            color: #5a6a7a;
+            font-weight: 500;
+        }
+        .month-select {
+            padding: 8px 12px;
+            border: 1px solid #dde3ea;
+            border-radius: 4px;
+            font-size: 13px;
+            min-width: 120px;
+            outline: none;
+            cursor: pointer;
+            background: #fff;
+        }
+        .query-btn {
+            padding: 8px 20px;
+            background: #3b82f6;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+            white-space: nowrap;
+        }
+        .query-btn:hover { background: #2563eb; }
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .title-text {
+            font-size: 15px;
+            font-weight: 600;
+            color: #1a2332;
+        }
+        .btn-group { display: flex; gap: 8px; }
+        .export-btn {
+            padding: 8px 20px;
+            background: #10b981;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .export-btn:hover { background: #059669; }
+        .print-btn {
+            padding: 8px 20px;
+            background: #6b7280;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .print-btn:hover { background: #4b5563; }
+        .export-img-btn {
+            padding: 8px 20px;
+            background: #8b5cf6;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .export-img-btn:hover { background: #7c3aed; }
+
+        .payslip-wrapper {
+            overflow-x: auto;
+            padding: 8px 0 16px 0;
+        }
+        /* 滚动条样式调细 */
+        .payslip-wrapper::-webkit-scrollbar {
+            height: 6px;
+            width: 6px;
+        }
+        .payslip-wrapper::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 3px;
+        }
+        .payslip-wrapper::-webkit-scrollbar-thumb {
+            background: #c1c7cd;
+            border-radius: 3px;
+        }
+        .payslip-wrapper::-webkit-scrollbar-thumb:hover {
+            background: #a0a7ae;
+        }
+        .payslip-table {
+            border-collapse: collapse;
+            font-size: 13px;
+            background: #fff;
+            min-width: max-content;
+            width: auto;
+        }
+        .payslip-table th,
+        .payslip-table td {
+            border: 1px solid #1a2332;
+            padding: 6px 8px;
+            text-align: center;
+            vertical-align: middle;
+            white-space: nowrap;
+        }
+        .payslip-table thead th {
+            background: #f8fafc;
+            font-weight: 600;
+            color: #1a2332;
+        }
+        .payslip-table thead tr:first-child th {
+            font-size: 13px;
+            padding: 8px 6px;
+        }
+        .payslip-table .col-emp {
+            background: #f1f5f9;
+            font-weight: 600;
+        }
+        .payslip-table .col-net {
+            background: #fffbeb;
+            font-weight: 700;
+            color: #b45309;
+        }
+        .payslip-table .group-col {
+            background: #fafbfc;
+        }
+        .warn-msg {
+            margin-top: 16px;
+            padding: 8px 16px;
+            background: #fef2f2;
+            border: 1px dashed #fecaca;
+            border-radius: 4px;
+            color: #b91c1c;
+            font-size: 12px;
+            text-align: center;
+            letter-spacing: 1px;
+        }
+        .error-card {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #dc2626;
+            padding: 16px;
+            border-radius: 6px;
+            text-align: center;
+            font-size: 14px;
+        }
+
+        @media (max-width: 599px) {
+            .container { padding: 0 12px; margin: 12px auto; }
+            .card { padding: 12px; }
+            .header { padding: 12px 16px; }
+            .header h1 { font-size: 15px; }
+            .user-info { gap: 10px; font-size: 12px; }
+            .logout-btn { padding: 4px 10px; font-size: 12px; }
+            .query-btn { width: 100%; }
+            .selector-card { flex-direction: column; align-items: stretch; }
+            .selector-card form {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 8px;
+                width: 100%;
+            }
+            .selector-card form select { width: 100%; }
+            .month-select { width: 100%; }
+            .query-btn { grid-column: 1 / -1; width: 100%; }
+            .salary-badge-wrapper { width: 100%; margin-top: 12px; display: flex; justify-content: center; }
+            .toolbar { flex-direction: column; align-items: stretch; }
+            .btn-group { justify-content: stretch; }
+            .btn-group .btn { flex: 1; }
+            .payslip-table th, .payslip-table td { padding: 4px 3px; font-size: 12px; }
+        }
+
+        @media print {
+            @page {
+                size: A4 landscape;
+                margin: 8mm;
+            }
+            body { background: #fff; }
+            .no-print { display: none !important; }
+            .header, .selector-card, .toolbar, .btn-group { display: none !important; }
+            .container { max-width: 100%; margin: 0; padding: 0; }
+            .card { border: none; padding: 0; margin: 0; box-shadow: none; }
+            .payslip-wrapper { padding: 0; }
+            .payslip-table { font-size: 11px; }
+            .payslip-table th, .payslip-table td { padding: 3px 4px; }
+            .extra-fields-grid { grid-template-columns: repeat(4, 1fr); }
+        }
+
+        .extra-fields-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 8px 16px;
+            margin-top: 8px;
+        }
+        .extra-field-item {
+            display: flex;
+            align-items: center;
+            padding: 6px 10px;
+            background: #fff;
+            border: 1px solid #e8ecf1;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        .extra-field-label {
+            color: #5a6a7a;
+            flex-shrink: 0;
+            margin-right: 8px;
+            font-weight: 500;
+        }
+        .extra-field-value {
+            color: #1a2332;
+            font-weight: 600;
+            word-break: break-all;
+            text-align: right;
+            margin-left: auto;
+        }
+        @media (max-width: 599px) {
+            .extra-fields-grid { grid-template-columns: repeat(1, 1fr); }
+        }
+
+        .kv-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 0;
+            border: 1px solid #1a2332;
+            margin-top: 12px;
+            font-size: 13px;
+        }
+        .kv-cell {
+            display: flex;
+            align-items: center;
+            padding: 8px 12px;
+            border-right: 1px solid #1a2332;
+            border-bottom: 1px solid #1a2332;
+            background: #fff;
+        }
+        .kv-label {
+            color: #5a6a7a;
+            font-weight: 500;
+            margin-right: 8px;
+            flex-shrink: 0;
+        }
+        .kv-value {
+            color: #1a2332;
+            font-weight: 600;
+            text-align: right;
+            flex: 1;
+            word-break: break-all;
+        }
+        @media print {
+            @page { size: A4 landscape; margin: 8mm; }
+            body { padding: 0; }
+            .kv-grid { font-size: 11px; }
+            .kv-cell { padding: 4px 6px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header no-print">
+        <h1>员工工资查询系统</h1>
+        <div class="user-info">
+            <span>{{ employee.name }}</span>
+            <a href="/logout" class="logout-btn">退出</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="card selector-card no-print">
+            <span class="selector-label">选择月份</span>
+            <form method="get" action="/salary" class="selector-form">
+                <select name="year" id="year-select" class="month-select" onchange="onYearChange()">
+                    {% for y in available_years %}
+                    <option value="{{ y }}" {% if selected_year == y|string %}selected{% endif %}>{{ y }}年</option>
+                    {% endfor %}
+                </select>
+                <select name="month" id="month-select" class="month-select">
+                    {% for m in months_for_year %}
+                    <option value="{{ m }}" {% if selected_month == m|string %}selected{% endif %}>{{ m }}月</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="query-btn">查询</button>
+            </form>
+            {% if payslip %}
+            <div class="salary-badge-wrapper no-print">
+                <div class="salary-badge">
+                    <span style="font-size:14px;color:#92400e;font-weight:500;">实发工资</span>
+                    <span style="font-size:24px;font-weight:700;color:#b45309;font-family:Consolas, 'Courier New', monospace;">{{ payslip.row.net_salary or '0' }}<span style="font-size:15px;margin-left:2px;">￥</span></span>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        {% if error %}
+        <div class="error-card">{{ error }}</div>
+        {% elif payslip %}
+        <div class="card">
+            <div class="toolbar no-print">
+                <div class="title-text">{{ payslip.employee.year }}年{{ payslip.employee.month }}月 工资条</div>
+                <div class="btn-group">
+                    <button type="button" class="print-btn" onclick="window.print()">🖨 打印</button>
+                    <button type="button" class="export-btn" onclick="exportSalary()">⬇ 导出PDF</button>
+                    <button type="button" class="export-img-btn" onclick="exportScreenshot()">🖼 导出截图</button>
+                </div>
+            </div>
+
+            <div class="payslip-wrapper" id="payslip-content">
+                <table class="payslip-table">
+                    <thead>
+                        <tr>
+                            {% for f in payslip.fields %}
+                            <th>{{ f.label }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            {% for f in payslip.fields %}
+                            <td>
+                                {{ f.value if f.value else '' }}
+                            </td>
+                            {% endfor %}
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="warn-msg">⚠ 薪资保密，请勿讨论，违者按公司制度处理</div>
+        {% else %}
+        <div class="card">
+            <div style="text-align:center;padding:48px 20px;color:#8a99ab;">请选择月份查询工资</div>
+        </div>
+        {% endif %}
+    </div>
+
+    <script src="{{ url_for('static', filename='js/html2canvas.min.js') }}"></script>
+    <script>
+        function exportScreenshot() {
+            const wrapper = document.getElementById('payslip-content');
+            if (!wrapper) return;
+            const card = wrapper.closest('.card');
+            if (!card) return;
+
+            const name = '{{ payslip.employee.name if payslip else "" }}';
+            const year = '{{ selected_year }}';
+            const month = '{{ selected_month }}';
+
+            const titleText = card.querySelector('.title-text')
+                ? card.querySelector('.title-text').textContent
+                : (year + '年' + month + '月 工资条');
+            const table = card.querySelector('.payslip-table');
+            const warn = card.querySelector('.warn-msg');
+            if (!table) return;
+
+            // 创建临时容器，按内容撑开，避免固定大宽度导致画布超限
+            const temp = document.createElement('div');
+            temp.style.position = 'fixed';
+            temp.style.top = '0';
+            temp.style.left = '0';
+            temp.style.zIndex = '-9999';
+            temp.style.background = '#ffffff';
+            temp.style.padding = '24px';
+            temp.style.width = 'max-content';
+            temp.style.boxSizing = 'border-box';
+
+            const titleEl = document.createElement('div');
+            titleEl.textContent = titleText;
+            titleEl.style.fontSize = '15px';
+            titleEl.style.fontWeight = '600';
+            titleEl.style.color = '#1a2332';
+            titleEl.style.marginBottom = '16px';
+
+            const cloneTable = table.cloneNode(true);
+            cloneTable.style.width = 'max-content';
+            cloneTable.style.minWidth = 'max-content';
+            cloneTable.style.tableLayout = 'auto';
+
+            temp.appendChild(titleEl);
+            temp.appendChild(cloneTable);
+
+            if (warn) {
+                const cloneWarn = warn.cloneNode(true);
+                cloneWarn.style.marginTop = '16px';
+                temp.appendChild(cloneWarn);
+            }
+
+            document.body.appendChild(temp);
+
+            // 等待浏览器完成布局后再截图
+            requestAnimationFrame(function() {
+                const rect = temp.getBoundingClientRect();
+                // 额外留出 40px 边距，避免右侧/底部被截断
+                const targetWidth = Math.ceil(rect.width) + 40;
+                const targetHeight = Math.ceil(rect.height) + 40;
+
+                // 避免画布超出浏览器限制导致 PNG 损坏
+                let scale = 2;
+                const maxCanvas = 16000;
+                if (targetWidth * scale > maxCanvas || targetHeight * scale > maxCanvas) {
+                    scale = Math.min(maxCanvas / targetWidth, maxCanvas / targetHeight, 1);
+                }
+
+                html2canvas(temp, {
+                    scale: scale,
+                    useCORS: true,
+                    backgroundColor: '#ffffff',
+                    logging: false,
+                    width: targetWidth,
+                    height: targetHeight,
+                    windowWidth: targetWidth,
+                    windowHeight: targetHeight,
+                    scrollX: 0,
+                    scrollY: 0,
+                }).then(function(canvas) {
+                    if (temp.parentNode) document.body.removeChild(temp);
+
+                    const link = document.createElement('a');
+                    link.download = name + '-' + year + '年' + month + '月工资条.png';
+                    link.href = canvas.toDataURL('image/png');
+                    link.click();
+                }).catch(function(err) {
+                    if (temp.parentNode) document.body.removeChild(temp);
+                    alert('截图生成失败：' + err.message);
+                });
+            });
+        }
+
+        function exportSalary() {
+            const title = '{{ payslip.employee.name if payslip else "" }} - {{ selected_year }}年{{ selected_month }}月工资条';
+            const win = window.open('', '_blank');
+            if (!win) {
+                alert('浏览器阻止了弹窗，请允许弹窗后重试');
+                return;
+            }
+            const titleText = document.querySelector('.title-text') ? document.querySelector('.title-text').textContent : title;
+            const tableEl = document.querySelector('.payslip-table') ? document.querySelector('.payslip-table').outerHTML : '';
+
+            win.document.write(`
+                <!DOCTYPE html>
+                <html lang="zh-CN">
+                <head>
+                    <meta charset="UTF-8">
+                    <title>${title}</title>
+                    <style>
+                        * { box-sizing: border-box; margin: 0; padding: 0; }
+                        @page { size: A4 landscape; margin: 8mm; }
+                        body {
+                            font-family: "Microsoft YaHei", "SimSun", sans-serif;
+                            background: #fff;
+                            color: #1a2332;
+                            padding: 16px;
+                        }
+                        .doc-title {
+                            text-align: center;
+                            font-size: 18px;
+                            font-weight: 700;
+                            margin-bottom: 8px;
+                        }
+                        .doc-subtitle {
+                            text-align: center;
+                            font-size: 14px;
+                            font-weight: 600;
+                            margin-bottom: 16px;
+                        }
+                        .payslip-table {
+                            border-collapse: collapse;
+                            font-size: 11px;
+                            background: #fff;
+                            min-width: max-content;
+                            width: auto;
+                        }
+                        .payslip-table th,
+                        .payslip-table td {
+                            border: 1px solid #1a2332;
+                            padding: 4px 3px;
+                            text-align: center;
+                            vertical-align: middle;
+                            white-space: nowrap;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                        }
+                        .payslip-table thead th {
+                            background: #f8fafc;
+                            font-weight: 600;
+                        }
+                        .payslip-table .col-emp {
+                            background: #f1f5f9;
+                            font-weight: 600;
+                        }
+                        .payslip-table .col-net {
+                            background: #fffbeb;
+                            font-weight: 700;
+                            color: #b45309;
+                        }
+                        .sign-row {
+                            display: flex;
+                            justify-content: space-around;
+                            margin-top: 16px;
+                            padding: 0 20px;
+                            font-size: 13px;
+                            color: #374151;
+                        }
+                        .sign-row > div {
+                            text-align: center;
+                            border-top: 1px solid #6b7280;
+                            padding-top: 6px;
+                            min-width: 120px;
+                        }
+                        .warn-msg {
+                            margin-top: 12px;
+                            padding: 6px 16px;
+                            background: #fef2f2;
+                            border: 1px dashed #fecaca;
+                            border-radius: 4px;
+                            color: #b91c1c;
+                            font-size: 12px;
+                            text-align: center;
+                            letter-spacing: 1px;
+                        }
+                        .extra-fields-grid {
+                            display: grid;
+                            grid-template-columns: repeat(4, 1fr);
+                            gap: 6px 12px;
+                            margin-top: 10px;
+                            margin-bottom: 8px;
+                        }
+                        .extra-field-item {
+                            display: flex;
+                            align-items: center;
+                            padding: 4px 8px;
+                            background: #fff;
+                            border: 1px solid #dde3ea;
+                            border-radius: 3px;
+                            font-size: 11px;
+                        }
+                        .extra-field-label {
+                            color: #5a6a7a;
+                            flex-shrink: 0;
+                            margin-right: 6px;
+                            font-weight: 500;
+                        }
+                        .extra-field-value {
+                            color: #1a2332;
+                            font-weight: 600;
+                            word-break: break-all;
+                            text-align: right;
+                            margin-left: auto;
+                        }
+                        .extra-section-title {
+                            font-size: 13px;
+                            font-weight: 600;
+                            color: #5a6a7a;
+                            margin-top: 14px;
+                            margin-bottom: 4px;
+                            padding-bottom: 4px;
+                            border-bottom: 1px solid #e8ecf1;
+                        }
+                        .kv-grid {
+                            display: grid;
+                            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+                            gap: 0;
+                            border: 1px solid #1a2332;
+                            margin-top: 12px;
+                            font-size: 11px;
+                        }
+                        .kv-cell {
+                            display: flex;
+                            align-items: center;
+                            padding: 4px 6px;
+                            border-right: 1px solid #1a2332;
+                            border-bottom: 1px solid #1a2332;
+                            background: #fff;
+                        }
+                        .kv-label {
+                            color: #5a6a7a;
+                            font-weight: 500;
+                            margin-right: 6px;
+                            flex-shrink: 0;
+                        }
+                        .kv-value {
+                            color: #1a2332;
+                            font-weight: 600;
+                            text-align: right;
+                            flex: 1;
+                            word-break: break-all;
+                        }
+                        @media print {
+                            @page { size: A4 landscape; margin: 8mm; }
+                            body { padding: 0; }
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="doc-title">员工工资条</div>
+                    <div class="doc-subtitle">${titleText}</div>
+                    ${tableEl}
+                    <div class="warn-msg">⚠ 薪资保密，请勿讨论，违者按公司制度处理</div>
+                    <script>
+                        window.onload = function() {
+                            setTimeout(function() {
+                                window.print();
+                                setTimeout(function() { window.close(); }, 300);
+                            }, 300);
+                        };
+                    <\/script>
+                </body>
+                </html>
+            `);
+            win.document.close();
+        }
+
+        document.addEventListener('keydown', function(e) {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
+                e.preventDefault();
+                if (document.getElementById('payslip-content')) exportSalary();
+            }
+        });
+
+        // 根据数据行中的隐藏单元格同步隐藏表头对应列（保持列对齐）
+        function syncTableColumns() {
+            const table = document.querySelector('.payslip-table');
+            if (!table) return;
+            const rows = table.querySelectorAll('tr');
+            if (rows.length < 3) return;
+            const bodyRow = rows[2];
+            const bodyCells = bodyRow.children;
+            const hiddenColIndexes = new Set();
+            for (let i = 0; i < bodyCells.length; i++) {
+                if (bodyCells[i].style.display === 'none') {
+                    hiddenColIndexes.add(i);
+                }
+            }
+            // 同步隐藏前两行表头的对应列
+            for (let r = 0; r < 2; r++) {
+                const cells = rows[r].children;
+                for (let i = 0; i < cells.length; i++) {
+                    if (hiddenColIndexes.has(i)) {
+                        cells[i].style.display = 'none';
+                    }
+                }
+            }
+            // 更新 colspan
+            const r1 = rows[0].children;
+            const earnGroupHidden = [];
+            const earnGroupIdx = [];
+            const deductGroupIdx = [];
+            const withholdGroupIdx = [];
+            let earnGroupStart = -1, deductGroupStart = -1, withholdGroupStart = -1;
+            for (let i = 0; i < r1.length; i++) {
+                const th = r1[i];
+                const text = th.textContent.trim();
+                if (text === '应发工资' && th.classList.contains('group-col')) earnGroupStart = i;
+                else if (text === '应扣工资' && th.classList.contains('group-col')) deductGroupStart = i;
+                else if (text === '应(代)扣金额' && th.classList.contains('group-col')) withholdGroupStart = i;
+            }
+            if (earnGroupStart >= 0) {
+                const span = parseInt(r1[earnGroupStart].getAttribute('colspan') || '1', 10);
+                let hiddenCount = 0;
+                for (let i = earnGroupStart; i < earnGroupStart + span; i++) {
+                    if (hiddenColIndexes.has(i)) hiddenCount++;
+                }
+                if (hiddenCount > 0) r1[earnGroupStart].setAttribute('colspan', span - hiddenCount);
+            }
+            if (deductGroupStart >= 0) {
+                const span = parseInt(r1[deductGroupStart].getAttribute('colspan') || '1', 10);
+                let hiddenCount = 0;
+                for (let i = deductGroupStart; i < deductGroupStart + span; i++) {
+                    if (hiddenColIndexes.has(i)) hiddenCount++;
+                }
+                if (hiddenCount > 0) r1[deductGroupStart].setAttribute('colspan', span - hiddenCount);
+            }
+            if (withholdGroupStart >= 0) {
+                const span = parseInt(r1[withholdGroupStart].getAttribute('colspan') || '1', 10);
+                let hiddenCount = 0;
+                for (let i = withholdGroupStart; i < withholdGroupStart + span; i++) {
+                    if (hiddenColIndexes.has(i)) hiddenCount++;
+                }
+                if (hiddenCount > 0) r1[withholdGroupStart].setAttribute('colspan', span - hiddenCount);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', syncTableColumns);
+        if (document.readyState !== 'loading') syncTableColumns();
+
+        // 年份切换时联动更新月份下拉框
+        (function() {
+            const allMonths = {{ available_months|tojson }};
+            function onYearChange() {
+                const yearSelect = document.getElementById('year-select');
+                const monthSelect = document.getElementById('month-select');
+                if (!yearSelect || !monthSelect) return;
+                const year = parseInt(yearSelect.value, 10);
+                const monthsForYear = allMonths
+                    .filter(m => m.year === year)
+                    .map(m => m.month)
+                    .sort((a, b) => b - a);
+                monthSelect.innerHTML = '';
+                if (monthsForYear.length === 0) {
+                    const opt = document.createElement('option');
+                    opt.value = '';
+                    opt.textContent = '无可用月份';
+                    monthSelect.appendChild(opt);
+                    return;
+                }
+                monthsForYear.forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m;
+                    opt.textContent = m + '月';
+                    monthSelect.appendChild(opt);
+                });
+                // 默认选中该年最大月份
+                monthSelect.value = monthsForYear[0];
+            }
+            // 暴露到 window 给 inline onchange 调用
+            window.onYearChange = onYearChange;
+        })();
+    </script>
+</body>
+</html>

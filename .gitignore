@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Build output
+dist/
+build/
+便携版/
+*.spec
+*.zip
+
+# Data files (sensitive)
+data/
+
+# Logs
+*.log
+*.vbs
+*.bat
+startup.log
+
+# Docs build
+使用说明书.docx
+
+# IDE
+.vscode/
+.idea/
+
+# System
+Thumbs.db
+.DS_Store
