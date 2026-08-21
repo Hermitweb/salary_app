@@ -1,9 +1,11 @@
 """
 ControlPanel: 主界面 + 事件处理
-负责构建 UI（服务管理 / 字段配置 两个标签页）并响应用户操作
+负责构建 UI（服务管理 / 字段配置 两个标签页）并响应用操作
 """
 import os
+import subprocess
 import sys
+import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
 
@@ -23,6 +25,8 @@ class ControlPanel:
         self.service = ServiceManager()
         self.field_config = FieldConfig()
         self.tray = None
+        # 异步启停状态：None / "start" / "stop"（P1-9 防止 UI 冻结期间被定时器覆盖）
+        self._busy = None
 
         self.root.title("员工工资查询系统 - 控制面板")
         # #13 自适应屏幕分辨率：根据屏幕尺寸调整窗口（高 DPI 占 70%）
@@ -245,6 +249,152 @@ class ControlPanel:
         self.root.lift()
         self.root.focus_force()
 
+    # ========== 日志查看（P1-8） ==========
+    def _view_log(self):
+        """弹出窗口显示 access.log 的最后 800 行（访问审计日志）"""
+        log_path = _get_data_dir() / "access.log"
+        if not log_path.exists():
+            messagebox.showinfo(
+                "暂无日志",
+                "还没有访问日志。\n\n服务启动并被访问后，日志会记录在：\n"
+                + str(log_path)
+            )
+            return
+        try:
+            with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()
+        except OSError as e:
+            messagebox.showerror("读取失败", f"无法读取日志文件：\n{e}")
+            return
+
+        shown = lines[-800:]
+        dlg = tk.Toplevel(self.root)
+        dlg.title(f"访问日志（最近 {len(shown)} 行）")
+        dlg.geometry("860x520")
+        dlg.transient(self.root)
+
+        txt = tk.Text(
+            dlg, bg="#fafbfc", fg="#374151", relief="flat",
+            font=("Consolas", 10), wrap="none", padx=10, pady=8,
+        )
+        ybar = ttk.Scrollbar(dlg, orient="vertical", command=txt.yview)
+        xbar = ttk.Scrollbar(dlg, orient="horizontal", command=txt.xview)
+        txt.configure(yscrollcommand=ybar.set, xscrollcommand=xbar.set)
+        ybar.pack(side="right", fill="y")
+        xbar.pack(side="bottom", fill="x")
+        txt.pack(fill="both", expand=True)
+        txt.insert("1.0", "".join(shown))
+        txt.config(state="disabled")
+
+        foot = tk.Frame(dlg, bg="#f5f7fa")
+        foot.pack(fill="x")
+        tk.Label(
+            foot, text=f"日志文件：{log_path}（满 1MB 自动轮转，保留 3 个备份）",
+            bg="#f5f7fa", fg="#6b7280", font=("Microsoft YaHei", 8), anchor="w",
+        ).pack(side="left", padx=10, pady=4)
+        tk.Button(
+            foot, text="打开所在目录", command=self._open_data_folder,
+            bg="#e5e7eb", fg="#1a2332", relief="flat",
+            font=("Microsoft YaHei", 8), cursor="hand2",
+        ).pack(side="right", padx=10, pady=4)
+        txt.see("end")
+
+    # ========== 系统设置（P2-16） ==========
+    _RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+    _RUN_NAME = "SalaryQuerySystem"
+
+    def _autostart_command(self):
+        """开机自启的注册表命令：打包后直接指向 exe，开发态走 启动.vbs"""
+        if getattr(sys, "frozen", False):
+            return f'"{sys.executable}"'
+        from .constants import BASE_DIR
+        vbs = BASE_DIR / "启动.vbs"
+        if vbs.exists():
+            return f'wscript.exe "{vbs}"'
+        return None
+
+    def _autostart_enabled(self):
+        try:
+            import winreg
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER, self._RUN_KEY, 0, winreg.KEY_READ
+            ) as k:
+                val, _ = winreg.QueryValueEx(k, self._RUN_NAME)
+                return bool(val)
+        except OSError:
+            return False
+        except Exception:
+            return False
+
+    def _toggle_autostart(self):
+        enabled = self.autostart_var.get()
+        try:
+            import winreg
+            if enabled:
+                cmd = self._autostart_command()
+                if not cmd:
+                    messagebox.showwarning(
+                        "无法设置", "未找到 启动.vbs，开发模式下无法配置开机自启"
+                    )
+                    self.autostart_var.set(False)
+                    return
+                with winreg.CreateKey(
+                    winreg.HKEY_CURRENT_USER, self._RUN_KEY
+                ) as k:
+                    winreg.SetValueEx(k, self._RUN_NAME, 0, winreg.REG_SZ, cmd)
+                messagebox.showinfo("成功", "已设置开机自动启动（当前用户）")
+            else:
+                with winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER, self._RUN_KEY, 0, winreg.KEY_SET_VALUE
+                ) as k:
+                    winreg.DeleteValue(k, self._RUN_NAME)
+                messagebox.showinfo("成功", "已取消开机自动启动")
+        except FileNotFoundError:
+            # 删除时值本来就不存在，视为成功
+            pass
+        except OSError as e:
+            messagebox.showerror("失败", f"修改注册表失败：\n{e}")
+            self.autostart_var.set(self._autostart_enabled())
+
+    def _allow_firewall(self):
+        """netsh 一键放行当前 HTTP/HTTPS 端口（需管理员权限）"""
+        ports = sorted({self.service.port, self.service.https_port})
+        name = "工资查询系统"
+        try:
+            for p in ports:
+                # 先删同名旧规则再添加，避免重复点击累积一堆重复规则
+                subprocess.run(
+                    ["netsh", "advfirewall", "firewall", "delete", "rule",
+                     f"name={name} {p}"],
+                    capture_output=True, text=True, timeout=15,
+                )
+                r = subprocess.run(
+                    [
+                        "netsh", "advfirewall", "firewall", "add", "rule",
+                        f"name={name} {p}", "dir=in", "action=allow",
+                        "protocol=TCP", f"localport={p}",
+                    ],
+                    capture_output=True, text=True, timeout=15,
+                )
+                if r.returncode != 0:
+                    err = (r.stderr or r.stdout or "").strip()
+                    messagebox.showerror(
+                        "放行失败",
+                        f"netsh 返回错误（端口 {p}）：\n{err}\n\n"
+                        "请右键「以管理员身份运行」本程序后重试，\n"
+                        f"或手动在防火墙中放行端口 {ports[0]} 和 {ports[1]}。"
+                    )
+                    return
+            messagebox.showinfo(
+                "放行成功",
+                f"已在 Windows 防火墙放行端口：{ports[0]}（HTTP）和 {ports[1]}（HTTPS）。\n"
+                "局域网内其他电脑现在可以访问本系统。"
+            )
+        except FileNotFoundError:
+            messagebox.showerror("失败", "未找到 netsh 命令（仅支持 Windows）")
+        except Exception as e:
+            messagebox.showerror("失败", f"执行 netsh 时出错：\n{e}")
+
     # ========== UI 构建 ==========
     def _build_ui(self):
         title_frame = tk.Frame(self.root, bg="#1a2332", height=60)
@@ -383,6 +533,50 @@ class ControlPanel:
         )
         self.open_folder_btn.pack(side="left", padx=6, pady=(0, 8))
 
+        # P1-8 查看访问日志（审计：谁在什么时间查了什么）
+        self.view_log_btn = tk.Button(
+            btn_frame, text="📋 查看日志", command=self._view_log,
+            bg="#6b7280", fg="white", activebackground="#4b5563",
+            relief="flat", font=("Microsoft YaHei", 9),
+            width=12, height=1, cursor="hand2"
+        )
+        self.view_log_btn.pack(side="left", padx=6, pady=(0, 8))
+
+        # P2-16 系统设置：开机自启 + 防火墙一键放行
+        sys_card = tk.Frame(parent, bg="white", highlightbackground="#e8ecf1", highlightthickness=1)
+        sys_card.pack(fill="x", padx=16, pady=6)
+
+        tk.Label(
+            sys_card, text="系统设置", bg="white", fg="#1a2332",
+            font=("Microsoft YaHei", 10, "bold")
+        ).pack(anchor="w", padx=16, pady=(8, 4))
+
+        sys_row = tk.Frame(sys_card, bg="white")
+        sys_row.pack(fill="x", padx=16, pady=(0, 4))
+
+        self.autostart_var = tk.BooleanVar(value=self._autostart_enabled())
+        self.autostart_cb = tk.Checkbutton(
+            sys_row, text="开机自动启动", variable=self.autostart_var,
+            command=self._toggle_autostart,
+            bg="white", fg="#374151", activebackground="white",
+            font=("Microsoft YaHei", 9), cursor="hand2",
+        )
+        self.autostart_cb.pack(side="left")
+
+        self.firewall_btn = tk.Button(
+            sys_row, text="🛡 防火墙一键放行", command=self._allow_firewall,
+            bg="#8b5cf6", fg="white", activebackground="#7c3aed",
+            relief="flat", font=("Microsoft YaHei", 9),
+            width=14, height=1, cursor="hand2"
+        )
+        self.firewall_btn.pack(side="left", padx=(16, 0))
+
+        tk.Label(
+            sys_card,
+            text="防火墙放行需要在局域网内被访问时使用；修改需管理员权限，放行当前端口及 HTTPS 端口",
+            bg="white", fg="#9ca3af", font=("Microsoft YaHei", 8),
+        ).pack(anchor="w", padx=16, pady=(0, 8))
+
         info_frame = tk.Frame(parent, bg="white", highlightbackground="#e8ecf1", highlightthickness=1)
         info_frame.pack(fill="both", expand=True, padx=16, pady=(6, 12))
 
@@ -447,8 +641,10 @@ class ControlPanel:
         self.info_text.config(state="disabled")
 
     def _on_mousewheel(self, event):
-        """鼠标滚轮事件：仅在访问信息区域内才滚动 Canvas"""
-        # 找到当前鼠标位置下的组件
+        """全局滚轮分发（P2-20）：指针在哪个可滚动区域就滚哪个，互不干扰
+        修复旧实现的问题：字段画布用 Enter/Leave 换绑 bind_all，
+        鼠标移入子控件（字段标签）即触发 Leave，把全局绑定整个拆掉，
+        导致服务页"访问信息"滚轮失效。"""
         try:
             x, y = self.root.winfo_pointerxy()
             widget = self.root.winfo_containing(x, y)
@@ -456,19 +652,7 @@ class ControlPanel:
             return
         if widget is None:
             return
-        # 向上遍历父组件，判断鼠标是否在 info 区域
-        w = widget
-        in_info = False
-        while w is not None:
-            if w in (self.info_canvas, self.info_scrollable_frame):
-                in_info = True
-                break
-            try:
-                w = w.master
-            except Exception:
-                break
-        if not in_info:
-            return  # 不在 info 区域，不响应
+
         # 计算滚动量
         if event.num == 4:      # Linux up
             delta = -1
@@ -476,20 +660,51 @@ class ControlPanel:
             delta = 1
         else:                   # Windows / macOS
             delta = -1 if event.delta > 0 else 1
-        self.info_canvas.yview_scroll(delta, "units")
-        return "break"  # 阻止事件冒泡
+
+        # 向上遍历父组件，判断鼠标在哪个滚动区域内
+        w = widget
+        fields_canvas = getattr(self, "_fields_canvas", None)
+        target = None
+        while w is not None:
+            if fields_canvas is not None and w is fields_canvas:
+                target = fields_canvas
+                break
+            if w in (self.info_canvas, self.info_scrollable_frame):
+                target = self.info_canvas
+                break
+            try:
+                w = w.master
+            except Exception:
+                break
+
+        if target is None:
+            return  # 不在任何滚动区域，放行给其他控件
+        target.yview_scroll(delta, "units")
+        return "break"  # 阻止事件冒泡，避免双重滚动
 
     def _build_fields_tab(self, parent):
         desc_frame = tk.Frame(parent, bg="#f5f7fa")
         desc_frame.pack(fill="x", padx=16, pady=(16, 4))
 
+        head_row = tk.Frame(desc_frame, bg="#f5f7fa")
+        head_row.pack(fill="x")
+
         tk.Label(
-            desc_frame,
+            head_row,
             text="字段显示配置：",
             bg="#f5f7fa", fg="#5a6a7a",
             font=("Microsoft YaHei", 10, "bold"),
             anchor="w"
-        ).pack(anchor="w")
+        ).pack(side="left")
+
+        # P2-20 字段页手动刷新（新增/替换工资表后无需重启）
+        self.refresh_fields_btn = tk.Button(
+            head_row, text="🔄 刷新字段", command=self._refresh_fields,
+            bg="#3b82f6", fg="white", activebackground="#2563eb",
+            relief="flat", font=("Microsoft YaHei", 8),
+            width=12, height=1, cursor="hand2",
+        )
+        self.refresh_fields_btn.pack(side="right")
 
         hint_frame = tk.Frame(parent, bg="#f5f7fa")
         hint_frame.pack(fill="x", padx=16, pady=(0, 8))
@@ -530,14 +745,8 @@ class ControlPanel:
             "<Configure>",
             self._on_fields_canvas_configure
         )
-        self._fields_canvas.bind(
-            "<Enter>",
-            lambda e: self._fields_canvas.bind_all("<MouseWheel>", self._on_fields_mousewheel)
-        )
-        self._fields_canvas.bind(
-            "<Leave>",
-            lambda e: self._fields_canvas.unbind_all("<MouseWheel>")
-        )
+        # 滚轮统一由 _on_mousewheel 全局分发（P2-20），不再用 Enter/Leave 换绑
+        # （旧实现离开画布时会 unbind_all，把服务页的滚轮绑定一起拆掉）
 
         self._fields_canvas.pack(side="left", fill="both", expand=True)
         self._fields_vbar.pack(side="right", fill="y")
@@ -549,7 +758,28 @@ class ControlPanel:
         self._fields_canvas.configure(scrollregion=self._fields_canvas.bbox("all"))
 
     def _on_fields_mousewheel(self, event):
+        # 已由 _on_mousewheel 统一分发，保留方法以兼容旧引用
         self._fields_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    def _refresh_fields(self):
+        """P2-20 字段页手动刷新：新增/替换工资表后重新扫描字段列表"""
+        try:
+            from . import constants as _c
+            if str(_c.BASE_DIR) not in sys.path:
+                sys.path.insert(0, str(_c.BASE_DIR))
+            import excel_data
+            import cache as cache_mod
+            # 清掉三层缓存：常量字段缓存 / excel_data 扫描缓存 / xlsx 数据缓存
+            _c._DYNAMIC_FIELDS_CACHE = None
+            excel_data.reset_scan_caches()
+            cache_mod.DataCache.instance().invalidate_all()
+            self.field_config.load()
+            self._refresh_field_tags()
+            messagebox.showinfo(
+                "刷新完成", f"已重新扫描工资表字段，共 {len(self.field_config.fields)} 个字段"
+            )
+        except Exception as e:
+            messagebox.showerror("刷新失败", f"重新扫描字段时出错：\n{e}")
 
     def _refresh_field_tags(self):
         # #8 销毁旧控件改为 pack_forget + 清空列表，避免控件 ID 失效
@@ -672,52 +902,92 @@ class ControlPanel:
                     messagebox.showerror("错误", f"保存端口失败: {e}")
                     return
             self.port_var.set(str(port))
-            # 启动前更新一次状态（防止 UI 显示错误）
-            try:
-                self._update_status()
-            except tk.TclError:
-                pass
-            # 启动服务
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            messagebox.showerror("异常", f"启动服务时发生未预期错误: {e}")
+            return
+
+        if self._busy:
+            return  # 已有启停操作进行中
+
+        # P1-9：启动（含首次自签证书生成，openssl 可能耗时数十秒）放到后台线程，
+        # UI 只显示"启动中..."，完成后回到主线程刷新状态
+        self._set_busy("start", "启动中...（首次启动需生成证书，请稍候）")
+
+        def worker():
+            success, msg = True, ""
             try:
                 success, msg = self.service.start(force=True)
             except Exception as e:
                 import traceback
                 traceback.print_exc()
-                messagebox.showerror("启动异常", f"启动服务时发生异常: {e}")
+                success, msg = False, f"启动服务时发生异常: {e}"
+            # worker 线程先复位 busy：事件循环不可用时（如无 mainloop 的测试环境）
+            # root.after 会失败，done() 不再承担复位职责
+            if self._busy == "start":
+                self._busy = None
+
+            def done():
                 try:
                     self._update_status()
                 except tk.TclError:
-                    pass
-                return
-            try:
-                self._update_status()
-            except tk.TclError:
-                pass
-            if not success:
-                messagebox.showerror("错误", msg)
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            messagebox.showerror("异常", f"启动服务时发生未预期错误: {e}")
-            try:
-                self._update_status()
-            except tk.TclError:
-                pass
+                    return
+                if not success:
+                    messagebox.showerror("错误", msg)
+
+            self._post(done)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _stop_service(self):
-        # #18 异常保护
-        try:
-            success, msg = self.service.stop()
-        except Exception as e:
-            messagebox.showerror("停止异常", f"发生未知错误: {e}")
-            self._update_status()
+        if self._busy:
             return
-        if success:
-            self._update_status()
-        else:
-            messagebox.showerror("错误", msg)
+        self._set_busy("stop", "停止中...")
+
+        def worker():
+            success, msg = True, ""
+            try:
+                success, msg = self.service.stop()
+            except Exception as e:
+                success, msg = False, f"发生未知错误: {e}"
+            if self._busy == "stop":
+                self._busy = None
+
+            def done():
+                try:
+                    self._update_status()
+                except tk.TclError:
+                    return
+                if not success:
+                    messagebox.showerror("错误", msg)
+
+            self._post(done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _post(self, fn):
+        """安全地把回调投递回 UI 主线程"""
+        try:
+            self.root.after(0, fn)
+        except (tk.TclError, RuntimeError):
+            pass  # 窗口已销毁（退出中）或事件循环不可用（无 mainloop 的测试环境）
+
+    def _set_busy(self, kind, text):
+        """启停进行中：置灰按钮 + 状态栏显示进度文案"""
+        self._busy = kind
+        try:
+            self.status_indicator.config(fg="#f59e0b")
+            self.status_label.config(text=text, fg="#b45309")
+            self.start_btn.config(state="disabled", bg="#9ca3af", activebackground="#6b7280")
+            self.stop_btn.config(state="disabled", bg="#9ca3af", activebackground="#6b7280")
+        except (tk.TclError, AttributeError):
+            pass
 
     def _update_status(self):
+        # 启停进行中：保持"启动中/停止中"文案，不被定时器覆盖
+        if self._busy:
+            return
         is_running = self.service.check_status()
         if is_running:
             self.status_indicator.config(fg="#10b981")
@@ -1017,6 +1287,12 @@ class ControlPanel:
             lines.append("▎登录提示")
             lines.append("  账号 = 工号")
             lines.append("  密码 = 紧急联系人号码")
+            lines.append("")
+            # 首次访问引导（自签名证书警告会吓退不懂技术的员工）
+            lines.append("▎首次访问提示")
+            lines.append("  浏览器提示\"您的连接不是私密连接\"属正常现象")
+            lines.append("  点击\"高级\" → \"继续前往\"即可（仅首次需要）")
+            lines.append("  手机浏览器如无\"高级\"按钮，可直接在键盘上访问")
             text = "\n".join(lines)
             # 复制到剪贴板
             self.root.clipboard_clear()

@@ -35,12 +35,13 @@ DEFAULT_PORT = 5000
 
 
 def _resolve_default_port():
-    """#26 端口默认值共享：尝试从 app.py 读取默认值"""
+    """#26 端口默认值共享：尝试从 app.py 读取默认值
+    正则锚定行首，避免误匹配 https_port = ... 之类的其他赋值行"""
     try:
         if APP_PY.exists():
             with open(APP_PY, "r", encoding="utf-8") as f:
                 content = f.read()
-            m = re.search(r"port\s*=\s*(\d+)", content)
+            m = re.search(r"^port\s*=\s*(\d+)", content, re.M)
             if m:
                 return int(m.group(1))
     except (OSError, ValueError):

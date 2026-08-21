@@ -97,6 +97,26 @@
             margin-bottom: 20px;
             font-size: 13px;
         }
+        .info-msg {
+            background: #eff6ff;
+            color: #1d4ed8;
+            border: 1px solid #bfdbfe;
+            padding: 10px 14px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            font-size: 13px;
+        }
+        .pwd-hint {
+            background: #f8fafc;
+            border: 1px dashed #cbd5e1;
+            color: #64748b;
+            padding: 10px 14px;
+            border-radius: 6px;
+            margin-top: 16px;
+            font-size: 12px;
+            line-height: 1.7;
+            text-align: center;
+        }
         .login-btn {
             width: 100%;
             padding: 12px;
@@ -167,18 +187,27 @@
         <div class="error-msg">{{ error }}</div>
         {% endif %}
 
+        {% if expired %}
+        <div class="info-msg">登录状态已过期，请重新登录</div>
+        {% endif %}
+
         <form method="post" action="/login">
             <div class="form-group">
                 <label for="username">账号</label>
-                <input type="text" id="username" name="username" placeholder="请输入账号" required autofocus>
+                <input type="text" id="username" name="username" placeholder="请输入账号" required autofocus autocomplete="username">
             </div>
             <div class="form-group">
                 <label for="password">密码</label>
-                <input type="password" id="password" name="password" placeholder="请输入密码" required>
+                <input type="password" id="password" name="password" placeholder="请输入密码" required autocomplete="current-password">
             </div>
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="login-btn">登录</button>
         </form>
+
+        <div class="pwd-hint">
+            初始密码为 HR 登记的紧急联系人号码<br>
+            忘记密码请联系管理员重置
+        </div>
 
         <div class="footer">
             © 2026 工资查询系统

@@ -57,7 +57,23 @@ class TrayIcon:
         self.app.root.after(0, self._quit)
 
     def _quit(self):
-        self.app.service.stop()
+        # P2-20 托盘退出确认：服务运行中直接退出会停掉所有人的查询
+        running = False
+        try:
+            running = self.app.service.check_status()
+        except Exception:
+            pass
+        if running:
+            from tkinter import messagebox
+            if not messagebox.askyesno(
+                "退出确认",
+                "工资查询服务正在运行，退出后员工将无法查询。\n\n确定要退出吗？",
+            ):
+                return
+        try:
+            self.app.service.stop()
+        except Exception:
+            pass
         self.app.root.destroy()
         if self.icon:
             self.icon.stop()

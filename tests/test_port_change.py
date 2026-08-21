@@ -52,6 +52,10 @@ def port_change_env():
     ws_sal.append(["E0001", "张三", "测试部", 5000])
     wb_sal.save(salary_dir / "2026年05月员工工资.xlsx")
 
+    # 固定测试端口：不写 port.txt 时会回落到 DEFAULT_PORT（导入时解析的真实端口 5001），
+    # 与用户正在运行的生产服务冲突（连接重置/启动失败）
+    constants.PORT_CONFIG.write_text("16101", encoding="utf-8")
+
     from control_panel_pkg.service import ServiceManager
     import logging
     logging.getLogger("werkzeug").setLevel(logging.WARNING)
@@ -87,11 +91,11 @@ def test_change_port_then_start(port_change_env):
     assert ok, f"停止失败: {msg}"
     time.sleep(0.5)
 
-    # 改端口为 5099
-    print("\n[T2] 改端口为 5099")
-    ok, msg = sm.set_port(5099)
+    # 改端口为 15099
+    print("\n[T2] 改端口为 15099")
+    ok, msg = sm.set_port(15099)
     assert ok, f"改端口失败: {msg}"
-    print(f"[T2] set_port(5099): {msg}")
+    print(f"[T2] set_port(15099): {msg}")
 
     # 再次启动
     print("\n[T3] 改端口后启动")
@@ -101,7 +105,7 @@ def test_change_port_then_start(port_change_env):
         pytest.fail(f"start 异常: {e}")
     assert ok, f"改端口后启动失败: {msg}"
     print(f"[T3] start: {msg} (port={sm.port}, https_port={sm.https_port})")
-    assert sm.port == 5099, f"端口不对: {sm.port}"
+    assert sm.port == 15099, f"端口不对: {sm.port}"
     assert sm.is_running, "is_running 应为 True"
 
     # 验证 HTTP 端口
@@ -126,10 +130,11 @@ def test_change_port_directly(port_change_env):
     time.sleep(0.5)
 
     # 模拟 UI 行为：直接修改属性
+    # 端口选高位不常用段：5xxx 常被 WPS 等办公软件随机绑定，实测 5199 冲突
     print("\n[T4] 模拟 UI: 直接修改属性 + _save_port")
-    sm.port = 5199
-    sm.https_port = 5200
-    sm._save_port(5199)
+    sm.port = 15919
+    sm.https_port = 15920
+    sm._save_port(15919)
     print(f"[T4] 修改后: port={sm.port}, https_port={sm.https_port}")
 
     # 启动
@@ -139,7 +144,7 @@ def test_change_port_directly(port_change_env):
         pytest.fail(f"start 异常: {e}")
     assert ok, f"启动失败: {msg}"
     print(f"[T4] start: {msg}")
-    assert sm.port == 5199
+    assert sm.port == 15919
     assert sm.is_running
 
     r = requests.get(f"http://127.0.0.1:{sm.port}/login", timeout=3)
@@ -193,9 +198,11 @@ def test_ui_save_port_then_start(port_change_env):
     print("\n[T6] 模拟 UI：先启动 → 停止 → 保存新端口 → 启动")
 
     # 1. 第一次启动（用默认端口）
-    sm.port = 5001
-    sm.https_port = 5002
-    sm._save_port(5001)
+    # 5001 是生产端口：用户控制面板可能正在占用，测试绑定会与其互相干扰（连接重置/启动失败）。
+    # 15001 已被 test_watchdog 占用，这里用 16001
+    sm.port = 16001
+    sm.https_port = 16002
+    sm._save_port(16001)
     ok, msg = sm.start(force=True)
     assert ok, f"首次启动失败: {msg}"
     print(f"[T6-1] 启动: {msg}")
@@ -211,7 +218,7 @@ def test_ui_save_port_then_start(port_change_env):
     time.sleep(0.5)
 
     # 3. 保存新端口（模拟点击"保存端口"按钮）
-    new_port = 5099
+    new_port = 15099
     print(f"[T6-3] 保存新端口 {new_port}")
     ok, msg = sm.set_port(new_port)
     assert ok, f"set_port 失败: {msg}"
@@ -255,9 +262,9 @@ def test_start_while_watchdog_active(port_change_env):
 
     print("\n[T7] 看门狗运行中重复启动")
 
-    sm.port = 5301
-    sm.https_port = 5302
-    sm._save_port(5301)
+    sm.port = 16201
+    sm.https_port = 16202
+    sm._save_port(16201)
     ok, msg = sm.start(force=True)
     assert ok
     print(f"[T7-1] 启动成功: {msg}")

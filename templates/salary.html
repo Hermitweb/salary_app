@@ -42,6 +42,10 @@
             font-size: 13px;
             color: #5a6a7a;
         }
+        .logout-form {
+            display: inline;
+            margin: 0;
+        }
         .logout-btn {
             color: #3b82f6;
             text-decoration: none;
@@ -50,6 +54,9 @@
             border: 1px solid #dde3ea;
             border-radius: 4px;
             transition: all 0.2s;
+            background: transparent;
+            cursor: pointer;
+            font-family: inherit;
         }
         .logout-btn:hover {
             background: #f0f4f8;
@@ -372,7 +379,10 @@
         <h1>员工工资查询系统</h1>
         <div class="user-info">
             <span>{{ employee.name }}</span>
-            <a href="/logout" class="logout-btn">退出</a>
+            <form method="post" action="/logout" class="logout-form">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="logout-btn">退出</button>
+            </form>
         </div>
     </div>
 
@@ -409,7 +419,7 @@
             <div class="toolbar no-print">
                 <div class="title-text">{{ payslip.employee.year }}年{{ payslip.employee.month }}月 工资条</div>
                 <div class="btn-group">
-                    <button type="button" class="print-btn" onclick="window.print()">🖨 打印</button>
+                    <button type="button" class="print-btn" onclick="printSalary()">🖨 打印</button>
                     <button type="button" class="export-btn" onclick="exportSalary()">⬇ 导出PDF</button>
                     <button type="button" class="export-img-btn" onclick="exportScreenshot()">🖼 导出截图</button>
                 </div>
@@ -446,15 +456,45 @@
 
     <script src="{{ url_for('static', filename='js/html2canvas.min.js') }}"></script>
     <script>
+        // ===== 导出/打印动作审计（P1-14）=====
+        const CSRF_TOKEN = {{ csrf_token()|tojson }};
+
+        // HTML 转义：PDF 导出窗口用 document.write 写入完整 HTML 文档，
+        // 动态文本（含员工姓名等）必须先转义，防止注入恶意标签
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, function(c) {
+                return {'&': '&amp;', '<': '&lt;', '>': '&gt;',
+                        '"': '&quot;', "'": '&#39;'}[c];
+            });
+        }
+
+        function auditExport(action, detail) {
+            // 上报导出/打印动作到服务端审计日志（失败静默，不影响用户操作）
+            try {
+                const body = new URLSearchParams();
+                body.set('action', action);
+                body.set('detail', detail || '');
+                body.set('_csrf_token', CSRF_TOKEN);
+                fetch('/api/audit', { method: 'POST', body: body, keepalive: true })
+                    .catch(function() {});
+            } catch (e) {}
+        }
+
+        function printSalary() {
+            auditExport('PRINT');
+            window.print();
+        }
+
         function exportScreenshot() {
             const wrapper = document.getElementById('payslip-content');
             if (!wrapper) return;
             const card = wrapper.closest('.card');
             if (!card) return;
 
-            const name = '{{ payslip.employee.name if payslip else "" }}';
-            const year = '{{ selected_year }}';
-            const month = '{{ selected_month }}';
+            const name = {{ (payslip.employee.name if payslip else "")|tojson }};
+            const year = {{ selected_year|tojson }};
+            const month = {{ selected_month|tojson }};
+            auditExport('EXPORT_IMG', year + '-' + month + ' 工资条截图');
 
             const titleText = card.querySelector('.title-text')
                 ? card.querySelector('.title-text').textContent
@@ -537,7 +577,8 @@
         }
 
         function exportSalary() {
-            const title = '{{ payslip.employee.name if payslip else "" }} - {{ selected_year }}年{{ selected_month }}月工资条';
+            const title = {{ ((payslip.employee.name if payslip else "") ~ " - " ~ selected_year ~ "年" ~ selected_month ~ "月工资条")|tojson }};
+            auditExport('EXPORT_PDF', selected_year + '-' + selected_month + ' 工资条PDF');
             const win = window.open('', '_blank');
             if (!win) {
                 alert('浏览器阻止了弹窗，请允许弹窗后重试');
@@ -551,7 +592,7 @@
                 <html lang="zh-CN">
                 <head>
                     <meta charset="UTF-8">
-                    <title>${title}</title>
+                    <title>${escapeHtml(title)}</title>
                     <style>
                         * { box-sizing: border-box; margin: 0; padding: 0; }
                         @page { size: A4 landscape; margin: 8mm; }
@@ -703,7 +744,7 @@
                 </head>
                 <body>
                     <div class="doc-title">员工工资条</div>
-                    <div class="doc-subtitle">${titleText}</div>
+                    <div class="doc-subtitle">${escapeHtml(titleText)}</div>
                     ${tableEl}
                     <div class="warn-msg">⚠ 薪资保密，请勿讨论，违者按公司制度处理</div>
                     <script>

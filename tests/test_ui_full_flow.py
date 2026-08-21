@@ -30,6 +30,10 @@ def setup_env():
     excel_data.FIELDS_CONFIG = TMP_DATA / "fields.txt"
     cache_mod.DataCache.reset_for_test()
 
+    # 固定测试端口：不写 port.txt 会回落到 DEFAULT_PORT（导入时解析的真实端口 5001），
+    # 与生产服务冲突
+    constants.PORT_CONFIG.write_text("16301", encoding="utf-8")
+
     from openpyxl import Workbook
     wb = Workbook()
     ws = wb.active
@@ -46,6 +50,16 @@ def setup_env():
     wb_sal.save(salary_dir / "2026年05月员工工资.xlsx")
 
     return TMP_DATA
+
+
+def _wait_service(app, timeout=45):
+    """轮询等待异步启动完成（P1-9 后台线程 + 临时目录首次生成证书可达数十秒）"""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if app.service.check_status():
+            return True
+        time.sleep(0.2)
+    return False
 
 
 def test_full_flow():
@@ -81,20 +95,21 @@ def test_full_flow():
         print("\n[1] 第一次启动（默认端口）")
         app.port_var.set(str(app.service.port))
         app._start_service()
-        time.sleep(1.5)
-        assert app.service.check_status(), f"首次启动失败: {logs}"
+        assert _wait_service(app), f"首次启动失败: {logs}"
         print(f"  ✓ 启动成功: port={app.service.port}")
 
-        # 2. 停止
+        # 2. 停止服务
         print("\n[2] 停止服务")
         app._stop_service()
-        time.sleep(0.5)
+        deadline = time.time() + 15
+        while time.time() < deadline and app.service.check_status():
+            time.sleep(0.2)
         assert not app.service.check_status()
         print("  ✓ 停止成功")
 
         # 3. 修改端口
-        print("\n[3] 修改端口到 5099")
-        new_port = 5099
+        print("\n[3] 修改端口到 15099")
+        new_port = 15099
         app.port_var.set(str(new_port))
         # 模拟点击"保存端口"按钮
         try:
@@ -115,10 +130,7 @@ def test_full_flow():
             print(f"  ✗ _start_service 异常: {e}")
             traceback.print_exc()
             assert False, f"启动异常: {e}"
-        time.sleep(1.5)
-        if not app.service.check_status():
-            print(f"  ✗ 启动失败: {logs}")
-            assert False
+        assert _wait_service(app), f"启动失败: {logs}"
         print(f"  ✓ 启动成功: port={app.service.port}, is_running={app.service.is_running}")
 
         # 5. 验证 HTTP
@@ -128,8 +140,9 @@ def test_full_flow():
         print(f"  ✓ HTTP {app.service.port} 200 OK")
 
         # 6. 再次改端口（测试连续改端口）
-        print("\n[5] 再次修改端口到 5199")
-        new_port2 = 5199
+        # 5xxx 常被 WPS 等办公软件随机绑定（实测 5199 冲突），选高位不常用段
+        print("\n[5] 再次修改端口到 15919")
+        new_port2 = 15919
         app.port_var.set(str(new_port2))
         try:
             app._save_port()
@@ -143,8 +156,7 @@ def test_full_flow():
         except Exception as e:
             print(f"  ✗ _start_service 异常: {e}")
             assert False
-        time.sleep(1.5)
-        assert app.service.check_status()
+        assert _wait_service(app), f"再次启动失败: port={app.service.port}, logs={logs}"
         assert app.service.port == new_port2
         print(f"  ✓ 再次启动成功: port={app.service.port}")
 
@@ -155,7 +167,9 @@ def test_full_flow():
         # 7. 清理
         print("\n[6] 清理")
         app._stop_service()
-        time.sleep(0.5)
+        deadline = time.time() + 15
+        while time.time() < deadline and app.service.check_status():
+            time.sleep(0.2)
         root.destroy()
 
         print("\n" + "=" * 60)

@@ -18,6 +18,28 @@ try:
 except ImportError:
     openpyxl = None
 
+# 工资表缓存文件数上限（约 2 年的月份数）：超出按最久未使用淘汰，
+# 防止长期运行中缓存随访问过的月份数无限增长
+_MAX_SALARY_CACHE_FILES = 24
+
+# 工号列表头关键词（子串匹配，兼容「员工工号」「账号」等变体）
+_EMP_ID_KEYWORDS = ("工号", "员工号", "账号")
+
+
+def find_salary_emp_id_col(headers):
+    """在工资表表头中定位工号列（缓存层与 excel_data 共用，保证判定一致）。
+
+    先精确匹配「员工号 / 工号」，再子串匹配变体（含「账号」）。
+    找不到返回 None —— 绝不回落到第 0 列，防止误用其他列当工号建索引。
+    """
+    for i, h in enumerate(headers):
+        if h in ("员工号", "工号"):
+            return i
+    for i, h in enumerate(headers):
+        if h and any(kw in h for kw in _EMP_ID_KEYWORDS):
+            return i
+    return None
+
 
 class DataCache:
     """全局单例缓存：员工表 + 各月工资表"""
@@ -31,10 +53,11 @@ class DataCache:
         self._emp_mtime: Optional[float] = None
         self._emp_rows: List[Dict[str, Any]] = []
         self._emp_headers: List[str] = []
-        self._emp_id_idx: int = 0
-        self._emp_pwd_idx: int = 1
-        self._emp_name_idx: int = 0
-        self._emp_dept_idx: int = 0
+        # 列索引为 None 表示员工表中未找到对应列（绝不回落到第 0 列，防止误用工号列当密码列）
+        self._emp_id_idx: Optional[int] = None
+        self._emp_pwd_idx: Optional[int] = None
+        self._emp_name_idx: Optional[int] = None
+        self._emp_dept_idx: Optional[int] = None
         self._emp_status_idx: int = -1  # 离职列
         self._emp_locked = threading.RLock()
 
@@ -61,16 +84,17 @@ class DataCache:
             cls._instance = None
 
     # ==================== 员工表 ====================
-    def get_employees(self, path: str) -> Tuple[List[Dict[str, Any]], List[str], int, int, int, int, int]:
+    def get_employees(self, path: str) -> Tuple[List[Dict[str, Any]], List[str], Optional[int], Optional[int], Optional[int], Optional[int], int]:
         """获取员工表数据（带 mtime 缓存）
 
         返回：(rows列表, headers, id_idx, pwd_idx, name_idx, dept_idx, status_idx)
+        列索引可能为 None（表中未找到该列），调用方必须显式处理
         """
         with self._emp_locked:
             try:
                 mtime = os.path.getmtime(path)
             except OSError:
-                return [], [], 0, 1, 0, 0, -1
+                return [], [], None, None, None, None, -1
 
             if self._emp_path == path and self._emp_mtime == mtime and self._emp_rows:
                 self._hits += 1
@@ -100,7 +124,7 @@ class DataCache:
     def _load_employees_from_disk(path: str):
         """从磁盘加载员工表（耗时操作，约 50-200ms）"""
         if openpyxl is None:
-            return [], [], 0, 1, 0, 0, -1
+            return [], [], None, None, None, None, -1
         wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
         try:
             ws = wb.active
@@ -108,15 +132,15 @@ class DataCache:
             try:
                 headers = list(next(rows_iter))
             except StopIteration:
-                return [], [], 0, 1, 0, 0, -1
+                return [], [], None, None, None, None, -1
 
-            # 检测列索引
+            # 检测列索引（找不到返回 None，由调用方决定如何处理）
             def find_idx(keywords):
                 for kw in keywords:
                     for i, h in enumerate(headers):
                         if h is not None and kw in str(h):
                             return i
-                return 0
+                return None
 
             id_idx = find_idx(["工号", "员工号", "账号"])
             pwd_idx = find_idx(["密码", "手机号", "联系电话",
@@ -167,12 +191,19 @@ class DataCache:
             entry = self._salary_cache.get(path)
             if entry is not None and entry[0] == mtime:
                 self._hits += 1
+                # 标记为最近使用（移到字典末尾，dict 按插入序迭代即 LRU）
+                if len(self._salary_cache) > 1:
+                    self._salary_cache[path] = self._salary_cache.pop(path)
                 return entry[1], entry[2], entry[3]
 
             # 重新加载
             self._misses += 1
             headers, rows, idx_map = self._load_salary_from_disk(path)
             self._salary_cache[path] = (mtime, headers, rows, idx_map)
+            # 超出上限时淘汰最久未使用的条目（插入序最前者）
+            while len(self._salary_cache) > _MAX_SALARY_CACHE_FILES:
+                oldest = next(iter(self._salary_cache))
+                self._salary_cache.pop(oldest, None)
             return headers, rows, idx_map
 
     @staticmethod
@@ -191,12 +222,9 @@ class DataCache:
 
             headers = [str(h) if h is not None else "" for h in headers]
 
-            # 找工号列
-            emp_id_idx = 0
-            for i, h in enumerate(headers):
-                if h and ("工号" in h or "员工号" in h or "账号" in h):
-                    emp_id_idx = i
-                    break
+            # 找工号列（与 excel_data.get_salary 共用同一判定；
+            # 找不到时不建索引，绝不回落到第 0 列）
+            emp_id_idx = find_salary_emp_id_col(headers)
 
             rows = []
             idx_map = {}
@@ -208,9 +236,10 @@ class DataCache:
                     if i < len(row):
                         d[h] = row[i]
                 rows.append(d)
-                emp_id = d.get(headers[emp_id_idx]) if emp_id_idx < len(headers) else None
-                if emp_id is not None:
-                    idx_map[str(emp_id).strip()] = d
+                if emp_id_idx is not None:
+                    emp_id = d.get(headers[emp_id_idx])
+                    if emp_id is not None:
+                        idx_map[str(emp_id).strip()] = d
 
             return headers, rows, idx_map
         finally:

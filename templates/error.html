@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>工资查询系统 - 出错了</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+            background: #f5f7fa;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #333;
+        }
+        .error-container {
+            background: #fff;
+            border-radius: 8px;
+            padding: 48px 40px;
+            width: 400px;
+            max-width: 90%;
+            border: 1px solid #e8ecf1;
+            text-align: center;
+        }
+        .error-code {
+            font-size: 56px;
+            font-weight: 700;
+            color: #3b82f6;
+            letter-spacing: 2px;
+            margin-bottom: 12px;
+            font-family: Consolas, "Courier New", monospace;
+        }
+        .error-message {
+            font-size: 15px;
+            color: #5a6a7a;
+            margin-bottom: 28px;
+        }
+        .back-btn {
+            display: inline-block;
+            padding: 10px 32px;
+            background: #3b82f6;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+        .back-btn:hover {
+            background: #2563eb;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 28px;
+            font-size: 12px;
+            color: #a0aec0;
+        }
+    </style>
+</head>
+<body>
+    <div class="error-container">
+        <div class="error-code">{{ code }}</div>
+        <div class="error-message">{{ message }}</div>
+        <a href="/" class="back-btn">返回首页</a>
+        <div class="footer">© 2026 工资查询系统</div>
+    </div>
+</body>
+</html>

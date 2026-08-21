@@ -5,6 +5,27 @@ import tempfile
 import shutil
 from pathlib import Path
 
+import pytest
+
+# 测试直连 HTTP 端口，自签证书无法通过 requests 验证：
+# 必须在模块导入期关闭强跳转（模块级 fixture 启动服务早于函数级 fixture）
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+from control_panel_pkg.service import ServiceManager as _SM  # noqa: E402
+_SM.https_redirect = False
+# 看门狗死锁探活在专项测试中单独覆盖，其余测试关闭以保证确定性
+_SM.enable_deadlock_probe = False
+
+
+@pytest.fixture(autouse=True)
+def _isolate_security_state():
+    """每个测试结束后清空登录锁定状态，避免用例间相互影响"""
+    yield
+    app_mod = sys.modules.get("app")
+    if app_mod is not None and hasattr(app_mod, "_reset_login_limits"):
+        app_mod._reset_login_limits()
+
 
 def setup_temp_data_dir():
     """创建临时 data 目录，模拟 frozen 环境"""

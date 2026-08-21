@@ -53,6 +53,7 @@ EXCLUDE_PATTERNS = [
     "*.pyc",
     ".pytest_cache",
     "*.log",
+    "certs",  # HTTPS 私钥/证书仅限本机，目标机首次启动自动生成
 ]
 
 

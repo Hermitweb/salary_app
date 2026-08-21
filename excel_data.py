@@ -1,8 +1,14 @@
+import hmac
 import os
 import re
 import sys
 from pathlib import Path
 import openpyxl
+
+
+def _secret_eq(a, b):
+    """常量时间比较两个秘密字符串（防时序侧信道）"""
+    return hmac.compare_digest(str(a).encode("utf-8"), str(b).encode("utf-8"))
 
 
 def _resolve_data_dir():
@@ -240,6 +246,12 @@ def authenticate(username, password):
     has_standard_headers = any(any(f in str(h) for f in standard_fields) for h in headers)
 
     if has_standard_headers:
+        # 关键列缺失时禁用认证（绝不回落到第 0 列，否则工号列会被误当密码列）
+        if id_idx is None or id_idx >= len(headers):
+            return {"ok": False, "error": "员工表缺少工号列，登录已禁用，请联系管理员检查员工列表.xlsx"}
+        if pwd_idx is None or pwd_idx >= len(headers):
+            return {"ok": False, "error": "员工表缺少密码列，登录已禁用，请联系管理员检查员工列表.xlsx"}
+
         # 列索引
         def col_idx(keywords, default=None):
             for kw in keywords:
@@ -256,7 +268,7 @@ def authenticate(username, password):
             pwd = str(d.get(headers[pwd_idx], "")).strip() if pwd_idx is not None and pwd_idx < len(headers) else ""
             if not emp_id:
                 continue
-            if emp_id == username and pwd == password:
+            if emp_id == username and pwd and _secret_eq(pwd, password):
                 if resigned_idx is not None and resigned_idx < len(headers):
                     resigned_val = str(d.get(headers[resigned_idx], "")).strip()
                     if resigned_val in ("是", "已离职", "Y", "y", "1", "True", "true",
@@ -287,16 +299,31 @@ def authenticate(username, password):
         return {"ok": False, "error": "员工列表数据不足"}
 
     # 重新打开用列视图（模式2特殊，缓存按行存的，重新读一下）
+    # read_only 工作簿上 ws.cell 逐格随机访问需反复解析流、非常慢，
+    # 改为按行顺序读取前 5 行（账号/密码/姓名/部门/管理员）再取列
     wb = None
     try:
         wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
         ws = wb.active
-        max_col = ws.max_column
-        accounts = [str(ws.cell(1, c).value or "").strip() for c in range(1, max_col + 1)]
-        passwords = [str(ws.cell(2, c).value or "").strip() for c in range(1, max_col + 1)]
-        names = [str(ws.cell(3, c).value or "").strip() for c in range(1, max_col + 1)]
-        depts = [str(ws.cell(4, c).value or "").strip() for c in range(1, max_col + 1)]
-        admins = [str(ws.cell(5, c).value or "").strip() for c in range(1, max_col + 1)]
+        rows_iter = ws.iter_rows(values_only=True)
+        table = []
+        for _ in range(5):
+            try:
+                table.append(list(next(rows_iter)))
+            except StopIteration:
+                break
+        max_col = max((len(r) for r in table), default=0)
+
+        def _row_values(ridx):
+            row = table[ridx] if ridx < len(table) else []
+            padded = list(row) + [None] * (max_col - len(row))
+            return [str(c or "").strip() for c in padded]
+
+        accounts = _row_values(0)
+        passwords = _row_values(1)
+        names = _row_values(2)
+        depts = _row_values(3)
+        admins = _row_values(4)
     except Exception:
         return {"ok": False, "error": "员工列表读取失败"}
     finally:
@@ -307,7 +334,7 @@ def authenticate(username, password):
                 pass
 
     for i in range(len(accounts)):
-        if accounts[i] == username and passwords[i] == password:
+        if accounts[i] == username and passwords[i] and _secret_eq(passwords[i], password):
             is_admin = admins[i] in ("是", "管理员", "Y", "y", "1", "True", "true")
             return {
                 "ok": True,
@@ -369,7 +396,7 @@ def get_salary(employee_id, year, month):
 
     所有字段（包括员工号、序号、姓名）统一遵守字段配置，不再强制保留。
     """
-    from cache import DataCache
+    from cache import DataCache, find_salary_emp_id_col
 
     path = _find_salary_file(year, month)
     if not path:
@@ -385,13 +412,10 @@ def get_salary(employee_id, year, month):
     if not headers:
         return {"ok": False, "error": f"工资表为空或读取失败: {year}年{month}月"}
 
-    # 找工号列
-    emp_id_col = None
-    for i, h in enumerate(headers):
-        if h in ("员工号", "工号"):
-            emp_id_col = h
-            break
-    if emp_id_col is None:
+    # 找工号列（与缓存层共用同一判定，兼容「账号」等变体；
+    # 找不到时报错，绝不回落到其他列）
+    emp_id_idx = find_salary_emp_id_col(headers)
+    if emp_id_idx is None:
         return {"ok": False, "error": "工资表中找不到员工号列"}
 
     # 从缓存中查找员工行（O(1) 字典查找）
@@ -617,7 +641,9 @@ def _val(data, *keys, default=""):
 
 
 # 工资条表格列映射：列名 -> 对应的工资表字段（用于判断是否为空/是否配置显示）
-_PAYSLIP_COLUMN_MAP = {
+# 可通过 data/payslip_columns.json 覆盖默认映射（P2-15：硬编码 → 数据配置）
+_PAYSLIP_MAP_CONFIG = Path(DATA_DIR) / "payslip_columns.json"
+_DEFAULT_PAYSLIP_COLUMN_MAP = {
     "base_salary": ["应发基本工资"],
     "work_days": ["应出勤", "本月应出勤"],
     "overtime_days": ["加班费合计", "加班", "加班小时", "加班工时", "普加小时", "节加小时", "国加小时"],
@@ -633,6 +659,28 @@ _PAYSLIP_COLUMN_MAP = {
     "other_deduct": ["税后应扣-电"],
     "net_salary": ["本月实发工资", "实发工资"],
 }
+_PAYSLIP_COLUMN_MAP = dict(_DEFAULT_PAYSLIP_COLUMN_MAP)
+
+
+def _load_payslip_column_map():
+    """从 data/payslip_columns.json 加载自定义列映射，覆盖默认值（文件可选）"""
+    global _PAYSLIP_COLUMN_MAP
+    merged = dict(_DEFAULT_PAYSLIP_COLUMN_MAP)
+    try:
+        if _PAYSLIP_MAP_CONFIG.exists():
+            import json
+            with open(_PAYSLIP_MAP_CONFIG, "r", encoding="utf-8") as f:
+                custom = json.load(f)
+            if isinstance(custom, dict):
+                for key, fields in custom.items():
+                    if isinstance(fields, list):
+                        merged[key] = [str(x) for x in fields]
+    except Exception:
+        return  # 配置损坏时沿用默认映射
+    _PAYSLIP_COLUMN_MAP = merged
+
+
+_load_payslip_column_map()
 
 # 固定表格中已使用的字段集合（用于识别"额外字段"，避免重复显示）
 # 包括：传统工资条表格直接引用的字段，以及其对应的原始项目字段
@@ -863,6 +911,34 @@ def build_payslip_table(salary_data, employee_info, year, month):
     }
 
 
+def _salary_dir_snapshot():
+    """列出所有工资候选 xlsx 的 (路径, mtime_ns)，作为月列表缓存的失效 key"""
+    items = []
+    for d in [os.path.join(DATA_DIR, "salary"), DATA_DIR]:
+        try:
+            for fname in sorted(os.listdir(d)):
+                if fname.endswith((".xlsx", ".xls")):
+                    fpath = os.path.join(d, fname)
+                    try:
+                        items.append((fpath, os.stat(fpath).st_mtime_ns))
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+    return tuple(items)
+
+
+# 月列表缓存（P2-17）：目录快照未变化时直接返回缓存，消除每请求扫描税
+_MONTHS_CACHE = {"key": None, "months": None}
+
+
+def reset_scan_caches():
+    """清空字段/月列表扫描缓存（字段页"刷新字段"按钮与测试使用）"""
+    _DYNAMIC_FIELDS_CACHE.clear()
+    _MONTHS_CACHE["key"] = None
+    _MONTHS_CACHE["months"] = None
+
+
 def get_available_months():
     """
     扫描 data 和 data/salary 目录下的所有工资表文件，提取年月信息。
@@ -875,7 +951,12 @@ def get_available_months():
     - 工资单2026年5月.xlsx
     找不到年月时使用文件修改时间作为兜底年月。
     按 (年, 月) 倒序排，最新的在前。
+    带目录快照缓存：文件集合/mtime 未变时不再重新扫描（含兜底的 openpyxl 探测）。
     """
+    snap = _salary_dir_snapshot()
+    if _MONTHS_CACHE["key"] == snap and _MONTHS_CACHE["months"] is not None:
+        return list(_MONTHS_CACHE["months"])
+
     months = []
     seen = set()
     search_dirs = []
@@ -940,6 +1021,8 @@ def get_available_months():
             months.append({"year": y, "month": m})
 
     months.sort(key=lambda x: (x["year"], x["month"]), reverse=True)
+    _MONTHS_CACHE["key"] = snap
+    _MONTHS_CACHE["months"] = list(months)
     return months
 
 

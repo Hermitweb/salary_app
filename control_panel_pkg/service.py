@@ -22,6 +22,15 @@ class ServiceManager:
     _WATCHDOG_INTERVAL = 5      # 看门狗检测间隔（秒）
     _MAX_RESTART_COUNT = 5      # 最大自动重启次数（0=无限）
     _RESTART_DELAY = 3          # 重启前等待时间（秒）
+    _RESTART_WINDOW = 30 * 60   # 重启计数统计窗口：稳定运行超过该窗口后计数清零
+    # 死锁探活（P2-19）：线程活着但 /healthz 无响应时强制重启
+    _DEADLOCK_PROBE_INTERVAL = 30   # 探活周期（秒）
+    _DEADLOCK_PROBE_FAILS = 3       # 连续失败 N 次判定死锁
+    enable_deadlock_probe = True    # 测试可通过类属性关闭
+
+    # HTTPS 启用时，HTTP 端口仅做 301 跳转到 HTTPS（防止账密明文过局域网）。
+    # 测试可通过类属性关闭：ServiceManager.https_redirect = False
+    https_redirect = True
 
     def __init__(self):
         self.flask_thread = None
@@ -39,10 +48,15 @@ class ServiceManager:
         self._wd_stop_event = threading.Event()
         self._wd_generation = 0  # 世代计数：每次 _start_watchdog 递增，旧看门狗据此识别自己已过期
         self._restart_count = 0
+        self._last_restart_ts = 0.0  # 上次自动重启时间戳（用于重启计数时间窗）
         self._last_error = None
         self._auto_restart_enabled = True
         self._manual_stopping = False
         self._server_id = 0
+        # 死锁探活
+        self._probe_port = None
+        self._probe_tick = 0
+        self._probe_fails = 0
         # 期望运行状态：start() 设 True，stop() 设 False
         # 线程 finally 不再修改 is_running，由看门狗根据此标志判断是否要重启
         self._expected_running = False
@@ -98,10 +112,7 @@ class ServiceManager:
 
             self.flask_app = flask_app
 
-            # === 1. 启动 HTTP 服务 ===
-            self._server = make_server("0.0.0.0", self.port, self.flask_app, threaded=True)
-
-            # === 2. 启动 HTTPS 服务（端口+1）===
+            # === 1. 启动 HTTPS 服务（端口+1）===
             self.https_enabled = False
             self._https_server = None
             self._https_thread = None
@@ -118,6 +129,34 @@ class ServiceManager:
                         self.https_port = https_port
                     except Exception:
                         self._https_server = None
+
+            # === 2. 启动 HTTP 服务（HTTPS 可用时仅做 301 跳转）===
+            if self.https_enabled and self.https_redirect:
+                self._server = make_server(
+                    "0.0.0.0", self.port, self._make_redirect_app(), threaded=True
+                )
+            else:
+                self._server = make_server(
+                    "0.0.0.0", self.port, self.flask_app, threaded=True
+                )
+
+            # 会话 Cookie Secure 跟随 HTTPS 状态（P1-10）：
+            # 生产环境 https_redirect=True，HTTPS 可用时所有流量都走 HTTPS，打开 Secure 不影响登录；
+            # 测试直连 HTTP（https_redirect=False）时必须保持关闭，否则 Cookie 不随 HTTP 请求回传
+            try:
+                self.flask_app.config["SESSION_COOKIE_SECURE"] = (
+                    self.https_enabled and self.https_redirect
+                )
+            except Exception:
+                pass
+
+            # 记录实际绑定端口（port=0 时为随机端口），供 /healthz 探活使用
+            try:
+                self._probe_port = self._server.socket.getsockname()[1]
+            except Exception:
+                self._probe_port = None
+            self._probe_tick = 0
+            self._probe_fails = 0
 
             if force:
                 self._manual_stopping = False
@@ -214,8 +253,38 @@ class ServiceManager:
         self._https_server = None
         self.flask_app = None
         self.https_enabled = False
+        self._probe_port = None
+        self._probe_fails = 0
         self.is_running = False
         return True, "服务已停止"
+
+    def _make_redirect_app(self):
+        """构造 301 跳转 WSGI 应用：HTTP 请求全部跳转到 HTTPS 端口
+        /healthz 例外：直接返回 200，供看门狗本机探活（探活走 HTTP）"""
+        https_port = self.https_port
+
+        def redirect_app(environ, start_response):
+            path = environ.get("PATH_INFO", "/")
+            if path == "/healthz":
+                start_response("200 OK", [
+                    ("Content-Type", "text/plain; charset=utf-8"),
+                    ("Content-Length", "2"),
+                    ("Cache-Control", "no-store"),
+                ])
+                return [b"OK"]
+            query = environ.get("QUERY_STRING", "")
+            host = (environ.get("HTTP_HOST") or "").split(":")[0] or "localhost"
+            url = f"https://{host}:{https_port}{path}"
+            if query:
+                url += "?" + query
+            start_response("301 Moved Permanently", [
+                ("Location", url),
+                ("Content-Length", "0"),
+                ("Cache-Control", "no-store"),
+            ])
+            return [b""]
+
+        return redirect_app
 
     @staticmethod
     def _close_server_socket(srv):
@@ -295,6 +364,8 @@ class ServiceManager:
 
             crashed = http_dead or https_dead
             if not crashed:
+                # 线程都活着，做死锁探活（P2-19）
+                self._deadlock_probe_tick()
                 continue
 
             # 标记为停止，由 UI/外部感知
@@ -309,7 +380,12 @@ class ServiceManager:
                 continue
 
             # 在 watchdog_loop 中递增计数（避免首次手动 start 被算作 1 次）
+            # 时间窗（P2-19）：距上次重启超过 _RESTART_WINDOW 视为新故障周期，计数清零
+            now = time.time()
+            if now - self._last_restart_ts > self._RESTART_WINDOW:
+                self._restart_count = 0
             self._restart_count += 1
+            self._last_restart_ts = now
             max_retries = self._MAX_RESTART_COUNT
             if max_retries != 0 and self._restart_count > max_retries:
                 print(f"[保活] 已达最大重启次数({max_retries})，停止自动重启")
@@ -325,6 +401,12 @@ class ServiceManager:
             ):
                 continue
 
+            # 仅一端死亡时（如 HTTPS 线程崩溃），存活的另一端仍占着端口；
+            # 直接 start() 会与新服务双重绑定同一端口（Windows 下行为不定，
+            # 表现为连接重置/重启反复失败）。先强制关闭残存端再重启，保证干净重绑
+            self._force_kill_servers()
+            time.sleep(0.3)
+
             ok, msg = self.start(force=False)
             if ok:
                 print(f"[保活] 服务已自动重启 (第{self._restart_count}次)")
@@ -334,6 +416,51 @@ class ServiceManager:
                     self.stop()
             else:
                 print(f"[保活] 自动重启失败: {msg}")
+
+    # ========== 死锁探活（P2-19） ==========
+    def _deadlock_probe_tick(self):
+        """看门狗周期内做一次 /healthz 探活。
+        连续 N 次失败时强制关闭 server socket，让线程退出，
+        下一周期走正常的"线程死亡 -> 重启"路径。"""
+        if not self.enable_deadlock_probe:
+            return
+        self._probe_tick += 1
+        period = max(1, self._DEADLOCK_PROBE_INTERVAL // self._WATCHDOG_INTERVAL)
+        if self._probe_tick < period:
+            return
+        self._probe_tick = 0
+        if self._probe_healthz():
+            self._probe_fails = 0
+            return
+        self._probe_fails += 1
+        print(f"[保活] /healthz 探活失败 ({self._probe_fails}/{self._DEADLOCK_PROBE_FAILS})")
+        if self._probe_fails < self._DEADLOCK_PROBE_FAILS:
+            return
+        self._probe_fails = 0
+        print("[保活] 服务疑似死锁（线程存活但无响应），强制重启")
+        self._last_error = "服务无响应（疑似死锁），看门狗强制重启"
+        self.is_running = False
+        self._force_kill_servers()
+
+    def _probe_healthz(self):
+        """请求本机 /healthz，2 秒内返回 200 视为存活"""
+        port = self._probe_port
+        if not port:
+            return True
+        try:
+            import urllib.request
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/healthz", timeout=2
+            ) as resp:
+                return resp.status == 200
+        except Exception:
+            return False
+
+    def _force_kill_servers(self):
+        """强制关闭底层 socket，让 serve_forever 尽快退出"""
+        for srv in (self._server, self._https_server):
+            if srv is not None:
+                self._close_server_socket(srv)
 
     def check_status(self):
         """检查并修正 is_running 状态（UI 定时调用）"""
