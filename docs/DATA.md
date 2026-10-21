@@ -164,3 +164,20 @@ python scripts/generate_sample_data.py --data-dir data --months 3
 ```
 
 它会生成 5 名员工（含 1 名管理员、1 名已离职）和最近 3 个月的工资表。**正式使用前请用真实数据替换。**
+
+生成的员工表里存的是**明文口令**。按上面「口令：明文还是哈希」一节把它换成哈希：
+
+```bash
+python scripts/hash_passwords.py --in-place
+```
+
+转换完把 `data/员工列表.xlsx.bak`（明文备份）删掉即可。
+
+集成测试用的是仓库里另一份固定的明文样本
+`src-tauri/tests/fixtures/员工列表-测试用.xlsx`，不依赖 `data/` 下这份的格式，
+所以把 `data/` 换成哈希口令不会影响测试。重新生成样本时一并更新它：
+
+```bash
+python scripts/generate_sample_data.py --data-dir data --months 3 \
+  --employee-fixture src-tauri/tests/fixtures/员工列表-测试用.xlsx
+```

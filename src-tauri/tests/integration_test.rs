@@ -1,6 +1,8 @@
 //! 集成测试：通过真实的 HTTP 接口验证登录、鉴权与工资查询。
 //!
-//! 依赖 `data/` 下的示例数据（`python scripts/generate_sample_data.py` 生成）。
+//! 工资表依赖 `data/salary/` 下的示例数据（`python scripts/generate_sample_data.py`
+//! 生成）；员工表用仓库内固定的明文样本 `tests/fixtures/员工列表-测试用.xlsx`，
+//! 因为 `data/` 下那一份在正式使用时会被换成哈希口令，登录测试需要明文。
 //! 数据缺失时相关用例会跳过而不是失败。
 //!
 //! 登录凭据直接从员工表里读取，测试代码中不存放任何口令。
@@ -44,8 +46,16 @@ fn setup() {
         let _ = std::fs::remove_dir_all(&temp);
         let _ = std::fs::create_dir_all(&temp);
 
-        // 复制员工表与工资表
-        let _ = std::fs::copy(source.join("员工列表.xlsx"), temp.join("员工列表.xlsx"));
+        // 员工表用仓库里固定的明文样本，而不是 data/ 下那一份：
+        // data/ 里的员工表在正式使用时会被换成哈希口令，
+        // 而登录测试需要能拿出口令明文。
+        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("员工列表-测试用.xlsx");
+        let _ = std::fs::copy(&fixture, temp.join("员工列表.xlsx"));
+
+        // 工资表用 data/ 下的示例数据
         if let Ok(entries) = std::fs::read_dir(source.join("salary")) {
             let salary = temp.join("salary");
             let _ = std::fs::create_dir_all(&salary);
@@ -67,6 +77,8 @@ fn sample_data_ready() -> bool {
 }
 
 /// 读取员工表中某一行对应的工号与口令。
+///
+/// 哈希口令拿不出明文，这种行直接跳过——用它登录必然失败。
 fn row_credentials(
     employees: &EmployeesData,
     row: &HashMap<String, String>,
@@ -76,6 +88,10 @@ fn row_credentials(
 
     let employee_id = row.get(id_header)?.trim().to_string();
     let password = row.get(password_header)?.clone();
+
+    if password.starts_with("$pbkdf2-sha256$") {
+        return None;
+    }
 
     Some((employee_id, password))
 }

@@ -34,7 +34,10 @@ jobs:
       run: cargo clippy --workspace --all-targets -- -D warnings
 
     - name: Generate sample data
-      run: python scripts/generate_sample_data.py --data-dir data
+      run: python scripts/generate_sample_data.py --data-dir data --months 3 --employee-fixture src-tauri/tests/fixtures/员工列表-测试用.xlsx
+
+    - name: Verify password hashing script
+      run: python scripts/hash_passwords.py --dry-run
 
     - name: Run tests
       run: cargo test --workspace --locked

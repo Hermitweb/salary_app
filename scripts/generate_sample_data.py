@@ -212,6 +212,14 @@ def main() -> None:
         "--raw-employee-file",
         help="额外输出一份「原始模式」员工表（每列一名员工），用于测试该解析分支",
     )
+    parser.add_argument(
+        "--employee-fixture",
+        help=(
+            "额外输出一份明文口令的员工表，供集成测试当登录夹具用。"
+            "data/ 下的员工表在正式使用时会被换成哈希口令，"
+            "集成测试需要一份口令可读的固定样本"
+        ),
+    )
     args = parser.parse_args()
 
     data_dir = Path(args.data_dir)
@@ -227,6 +235,12 @@ def main() -> None:
         raw_file = Path(args.raw_employee_file)
         write_raw_employee_file(raw_file)
         print(f"已生成 {raw_file}")
+
+    # 集成测试用的明文口令样本
+    if args.employee_fixture:
+        fixture = Path(args.employee_fixture)
+        write_xlsx(fixture, [EMPLOYEE_HEADERS] + EMPLOYEES, "员工列表")
+        print(f"已生成 {fixture}")
 
     # 工资表
     salary_dir = data_dir / "salary"
