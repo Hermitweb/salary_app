@@ -1,0 +1,25 @@
+# 行尾与二进制文件策略
+#
+# 本机若开着 core.autocrlf=true，Windows 检出时会把所有文件转成 CRLF。
+# scripts/build.sh 这类 bash 脚本会因此跑不起来——shebang 后面多出一个 \r，
+# 表现为 "bash\r: bad interpreter"。所以行尾策略统一写在这里，不依赖各人本机设置：
+#
+#   - 仓库内容一律以 LF 存储；
+#   - Windows 原生脚本例外，用 CRLF。
+
+* text=auto eol=lf
+
+# cmd.exe 依赖 CRLF 解析行尾
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# PowerShell 脚本：与 UTF-8 BOM 配套，按 Windows 原生行尾保存
+# （这些脚本必须带 BOM，Windows PowerShell 5.1 才不会按系统 ANSI 代码页解码）
+*.ps1 text eol=crlf
+
+# 二进制文件：不做行尾转换，也不参与逐行差异
+*.xlsx binary
+*.xls binary
+*.png binary
+*.ico binary
+*.pdf binary

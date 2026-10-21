@@ -1,0 +1,17 @@
+# Rust 工具链配置
+#
+# 说明：在 Git Bash / MSYS 终端里，`/usr/bin/link.exe`（GNU coreutils 的 link）
+# 会抢在 MSVC 的 `link.exe` 前面，导致链接失败：
+#
+#   error: linking with `link.exe` failed:
+#   /usr/bin/link: extra operand '...rcgu.o'
+#
+# 解决办法是让 MSVC 的链接器目录排在 PATH 最前面。仓库里的
+# scripts/build.sh 与 scripts/build.ps1 会自动检测并修正。
+#
+# 如果在 Visual Studio 开发者命令行（Developer Command Prompt）里构建，
+# 则无需任何额外配置。
+
+[net]
+# 依赖较慢时给 cargo 更多时间重试
+retry = 3

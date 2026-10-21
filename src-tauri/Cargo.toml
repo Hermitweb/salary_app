@@ -1,0 +1,60 @@
+[package]
+name = "salary-app-backend"
+version = "0.1.0"
+edition = "2024"
+description = "员工工资查询系统 - Rust 后端服务"
+rust-version = "1.85"
+
+[lib]
+name = "salary_app_backend"
+path = "src/lib.rs"
+
+[[bin]]
+name = "salary-app-backend"
+path = "src/main.rs"
+
+[dependencies]
+# Web 服务
+actix-web = { version = "4.9", features = ["rustls-0_23"] }
+actix-cors = "0.7"
+
+# 异步运行时
+tokio = { version = "1.42", features = ["full"] }
+
+# TLS：仅启用 ring，避免引入 aws-lc-rs 的 C 工具链依赖
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pemfile = "2.2"
+rcgen = "0.13"
+
+# 启动后打开浏览器
+webbrowser = "1.0"
+
+# Excel 解析
+calamine = "0.26"
+
+# 序列化
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# 加密与编码
+sha2 = "0.10"
+hmac = "0.12"
+rand = { version = "0.8", features = ["getrandom"] }
+hex = "0.4"
+base64 = "0.22"
+
+# 错误处理
+thiserror = "2.0"
+
+# 日志
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# 时间
+chrono = { version = "0.4", features = ["serde"] }
+
+# 缓存
+moka = { version = "0.12", features = ["sync"] }
+
+# 文件名解析
+regex = "1.11"

@@ -1,0 +1,14 @@
+[workspace]
+members = [
+    "src-tauri",
+    "tray",
+]
+resolver = "2"
+
+# 根 workspace 配置
+[profile.release]
+opt-level = 3
+lto = true
+
+[profile.dev]
+opt-level = 1

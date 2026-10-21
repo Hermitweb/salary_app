@@ -1,0 +1,9 @@
+// 资源脚本：把应用清单内嵌进 exe。
+//
+// 清单里声明了 comctl32 v6 —— native-windows-gui 依赖的
+// GetWindowSubclass / SetWindowSubclass 只有 v6 版本才导出，
+// 缺少清单时程序启动会报「无法定位程序入口点 GetWindowSubclass」。
+
+#include <windows.h>
+
+1 RT_MANIFEST "salary-tray.manifest"

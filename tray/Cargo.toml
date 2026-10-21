@@ -1,0 +1,67 @@
+[package]
+name = "salary-tray"
+version = "0.1.0"
+edition = "2024"
+description = "员工工资查询系统 - 托盘控制面板"
+rust-version = "1.85"
+
+[lib]
+name = "salary_tray"
+path = "src/lib.rs"
+
+[[bin]]
+name = "salary-tray"
+path = "src/main.rs"
+
+[build-dependencies]
+# 把 comctl32 v6 清单内嵌进 exe（native-windows-gui 需要 GetWindowSubclass）
+embed-resource = "3"
+
+[dependencies]
+# 控制面板窗口
+native-windows-gui = { version = "1.0", default-features = false, features = [
+    "frame",
+    "flexbox",
+    "dynamic_layout",
+    "menu",
+    "tabs",
+    "listbox",
+    "list-view",
+    "textbox",
+    "timer",
+    "animation-timer",
+    # 内嵌 comctl32 v6 清单：否则运行时找不到 GetWindowSubclass 入口
+    "embed-resource",
+    "status-bar",
+    "tooltip",
+    "scroll-bar",
+    "high-dpi",
+] }
+
+# 系统托盘图标与右键菜单
+tray-icon = "0.26"
+muda = "0.21"
+
+# 开机自启（写入注册表 Run 项）
+winreg = "0.52"
+
+# 打开浏览器 / 数据目录
+webbrowser = "1.0"
+
+# 读取工资表以获得动态字段列表
+calamine = "0.26"
+chrono = "0.4"
+
+# 复用后端的路径解析与字段配置逻辑
+salary-app-backend = { path = "../src-tauri" }
+
+# 与 NWG 内部同一版本的 Win32 绑定：自绘纯色块窗口类
+winapi = { version = "0.3", features = [
+    "basetsd",
+    "errhandlingapi",
+    "libloaderapi",
+    "minwindef",
+    "windef",
+    "wingdi",
+    "winuser",
+] }
