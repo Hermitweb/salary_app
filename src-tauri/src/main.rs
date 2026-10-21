@@ -3,29 +3,8 @@
 //! 同时监听 HTTP（`SALARY_PORT`，默认 5001）与 HTTPS（端口 +1，默认 5002），
 //! 并把前端构建产物一并托管，实现单进程部署。
 
-use salary_app_backend::{paths, server};
+use salary_app_backend::{paths, port, server};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
-/// 默认监听端口。
-const DEFAULT_PORT: u16 = 5001;
-
-/// 解析监听端口。
-///
-/// 优先级与 Python 原版一致：环境变量 `SALARY_PORT` > `data/port.txt` > 默认值。
-fn resolve_port() -> u16 {
-    if let Ok(value) = std::env::var("SALARY_PORT") {
-        if let Ok(port) = value.trim().parse::<u16>() {
-            return port;
-        }
-        tracing::warn!("SALARY_PORT 不是合法端口号，改用配置文件");
-    }
-
-    std::fs::read_to_string(paths::port_file())
-        .ok()
-        .and_then(|text| text.trim().parse::<u16>().ok())
-        .filter(|port| (1..=65534).contains(port))
-        .unwrap_or(DEFAULT_PORT)
-}
 
 /// 获取本机局域网 IP。
 ///
@@ -67,21 +46,32 @@ async fn main() -> std::io::Result<()> {
 
     tracing::info!("数据目录: {}", paths::display_data_dir());
 
-    let port = resolve_port();
-    let runtime = server::spawn_server(port)?;
+    let listen_port = port::resolve();
+    let runtime = match server::spawn_server(listen_port) {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            // 直接 `?` 返回的话 Rust 会打印 io::Error 的 Debug 格式，
+            // 端口被占用这类常见错误应当给一句能看懂的话
+            eprintln!("服务启动失败：{error}");
+            std::process::exit(1);
+        }
+    };
 
     tracing::info!("==================================================");
     tracing::info!("  员工工资查询系统");
     tracing::info!("==================================================");
-    tracing::info!("  本机访问: http://localhost:{}", port);
+    tracing::info!("  本机访问: http://localhost:{}", listen_port);
     if let Some(ip) = local_ip() {
-        tracing::info!("  局域网访问: http://{}:{}", ip, port);
+        tracing::info!("  局域网访问: http://{}:{}", ip, listen_port);
     }
-    tracing::info!("  HTTPS: https://localhost:{}", port.saturating_add(1));
-    tracing::info!("  监听地址: 0.0.0.0:{}", port);
+    tracing::info!(
+        "  HTTPS: https://localhost:{}",
+        listen_port.saturating_add(1)
+    );
+    tracing::info!("  监听地址: 0.0.0.0:{}", listen_port);
     tracing::info!("==================================================");
 
-    open_browser(port);
+    open_browser(listen_port);
 
     runtime.wait();
 

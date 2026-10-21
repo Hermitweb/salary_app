@@ -670,3 +670,27 @@ async fn frontend_assets_answer_conditional_requests() {
 
     assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
 }
+
+#[actix_web::test]
+async fn spawning_on_a_taken_port_reports_the_error() {
+    setup();
+
+    // 先占住一个端口，再让服务去绑同一个端口
+    let listener = std::net::TcpListener::bind(("0.0.0.0", 0)).expect("应当能监听");
+    let port = listener.local_addr().expect("应当能取到端口").port();
+
+    // 绑定失败必须明确报错——否则界面上会显示「服务已启动」而服务根本没跑起来
+    let error = match salary_app_backend::server::spawn_server(port) {
+        Ok(runtime) => {
+            runtime.stop();
+            panic!("端口被占用时应当报错");
+        }
+        Err(error) => error,
+    };
+    let message = error.to_string();
+
+    assert!(
+        message.contains(&port.to_string()),
+        "错误信息里应当带上端口号，实际是：{message}"
+    );
+}

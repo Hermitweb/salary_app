@@ -133,6 +133,8 @@ npm run typecheck  # TypeScript 类型检查
 │                                          │
 │  /api/*        REST 接口                 │
 │  /其它路径      前端 SPA（React 构建产物） │
+│    /            工资条页                  │
+│    /admin       管理页（仅管理员）        │
 └──────────────┬───────────────────────────┘
                │
       ┌────────┴────────┐
@@ -184,7 +186,7 @@ npm run typecheck  # TypeScript 类型检查
 │   │   ├── main.tsx
 │   │   ├── App.tsx
 │   │   ├── styles.css         # 界面样式（对齐 Python 原版模板）
-│   │   ├── pages/             # 登录页 / 工资条页
+│   │   ├── pages/             # 登录页 / 工资条页 / 管理页
 │   │   ├── components/        # ProtectedRoute
 │   │   └── services/api.ts
 │   ├── src/                   # 后端源码（Rust）
@@ -193,6 +195,7 @@ npm run typecheck  # TypeScript 类型检查
 │   │   ├── server.rs          # 服务构建与启停
 │   │   ├── auth.rs            # 会话令牌、登录限流、认证提取器
 │   │   ├── password.rs        # 口令哈希（PBKDF2）与明文兼容
+│   │   ├── port.rs            # 端口解析与校验（后端与托盘共用）
 │   │   ├── handlers.rs        # REST 处理器
 │   │   ├── excel_parser.rs    # Excel 解析
 │   │   ├── cache.rs           # 缓存
@@ -249,6 +252,20 @@ python scripts/hash_passwords.py
 哈希格式是 PHC 标准字符串 `$pbkdf2-sha256$<迭代次数>$<盐>$<派生密钥>`，
 算法实现在 `src-tauri/src/password.rs`，与脚本的算法有跨实现的测试向量保证一致。
 
+## 管理页
+
+员工表里「角色」列（或「管理员」「是否管理员」列）取值为「是」「管理员」「1」「true」，
+或部门名为「管理员」的账号，拥有管理员权限。管理员登录后，工资条页右上角会出现
+「管理」按钮，指向 `/admin`：
+
+- **审计日志**：谁在什么时候、从哪个 IP 做了什么（登录、查看工资、导出、退出……），
+  可按条数筛选；
+- **缓存状态**：命中/未命中次数、命中率、已缓存的工资表数量；
+- **清空缓存**：手工清空解析缓存。
+
+审计日志同时保留在 `data/audit.log`（JSON Lines），管理页只是把它读出来方便核对。
+非管理员直接访问 `/admin` 会被挡回工资条页，服务端的接口也会再校验一次权限。
+
 ## 缓存
 
 员工表和工资表解析结果缓存在内存里，缓存键是文件路径，条目记录写入时的文件修改时间。Excel 被替换后，下一次请求会自动重新解析，不需要重启服务。管理员可以通过 `POST /api/cache/invalidate` 手动清空。
@@ -274,14 +291,15 @@ python scripts/hash_passwords.py
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `SALARY_PORT` | `5001` | HTTP 端口，HTTPS 使用端口 +1。优先级高于 `data/port.txt` |
+| `SALARY_PORT` | `5001` | HTTP 端口，HTTPS 使用端口 +1。优先级高于 `data/port.txt`。取值必须在 1–65534 之间（要预留 HTTPS 端口），越界时忽略并回退到 `data/port.txt` |
 | `SALARY_DATA_DIR` | `data/` | 数据目录 |
 | `SALARY_WEB_DIR` | 自动探测 | 前端构建产物目录 |
 | `SALARY_NO_BROWSER` | — | 设为 `1` 时不自动打开浏览器 |
-| `SALARY_ALLOW_ORIGIN` | — | 设为任意非空值时放开跨域；默认仅同源 |
+| `SALARY_ALLOW_ORIGIN` | — | 跨域策略。未设置时只允许同源访问。填 `https://example.com` 只放行这一个来源；填 `*` 或任意非空值放行全部来源 |
 | `RUST_LOG` | `salary_app=debug,actix_web=info` | 日志级别 |
 
 端口解析顺序与 Python 原版一致：`SALARY_PORT` 环境变量 → `data/port.txt` → 默认 `5001`。
+端口号统一由后端的 `port` 模块校验，托盘面板与后端进程用的是同一套规则。
 启动时会打印本机访问地址、局域网访问地址和监听地址，方便员工用手机连。
 
 ---

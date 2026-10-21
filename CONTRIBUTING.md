@@ -66,6 +66,7 @@ CI 会跑同样的检查，任何一项失败都不会合并。
 - **新增 Excel 字段**：解析逻辑集中在 `excel_parser.rs`，列名识别统一走 `find_column_index`（**先精确匹配、后模糊匹配**），不要在别处再写一份列名判断。
 - **工号匹配**：登录校验和工资查询共用 `excel_parser::ids_match`，不要改成严格字符串相等——两张表里工号可能一个是数字、一个是文本。
 - **口令**：口令的哈希与明文兼容逻辑集中在 `password.rs`，不要在别处直接比对口令字符串。
+- **端口**：端口的解析、范围校验与读写集中在 `port.rs`。后端进程与托盘面板都要用它，不要各写一份——曾经就因为漏了范围校验，`SALARY_PORT=65535` 会让 HTTPS 端口和 HTTP 端口撞车，整个服务起不来。
 - **路径**：所有路径都从 `paths.rs` 取，不要在别处拼 `data/` 目录。
 - **前端**：TypeScript 严格模式；接口调用统一走 `services/api.ts`，不要在组件里直接用 axios。
 - 注释写「为什么」，不写「做了什么」。
@@ -81,11 +82,12 @@ CI 会跑同样的检查，任何一项失败都不会合并。
 | `src-tauri/src/server.rs` | HTTP/HTTPS 服务的构建与启停 |
 | `src-tauri/src/auth.rs` | 会话令牌、登录限流、提取器 |
 | `src-tauri/src/password.rs` | 口令哈希（PBKDF2）与明文兼容 |
+| `src-tauri/src/port.rs` | 端口解析与校验（后端与托盘共用） |
 | `src-tauri/src/handlers.rs` | REST 处理器 |
 | `src-tauri/src/excel_parser.rs` | Excel 解析 |
 | `src-tauri/src/cache.rs` | 按 mtime 失效的缓存 |
 | `src-tauri/src/paths.rs` | 数据目录与前端产物目录解析 |
-| `src-tauri/src/pages/` | 前端页面 |
+| `src-tauri/src/pages/` | 前端页面（登录页 / 工资条页 / 管理页） |
 | `src-tauri/src/services/api.ts` | 前端接口层 |
 | `src-tauri/tests/` | 集成测试 |
 | `scripts/hash_passwords.py` | 员工表口令批量哈希（纯标准库） |

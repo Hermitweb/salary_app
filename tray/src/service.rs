@@ -7,7 +7,7 @@
 //! 端口探测最多会阻塞数百毫秒，因此放在后台线程做，
 //! 界面线程只读缓存结果——否则窗口会被判定为「未响应」。
 
-use salary_app_backend::paths;
+use salary_app_backend::port;
 use salary_app_backend::server::{self, ServerRuntime};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::process::Command;
@@ -16,10 +16,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// 默认端口（与后端一致）。
-pub const DEFAULT_PORT: u16 = 5001;
+pub const DEFAULT_PORT: u16 = port::DEFAULT_PORT;
 
 /// 端口号上限：需要给 HTTPS 预留 +1。
-const MAX_PORT: u16 = 65534;
+const MAX_PORT: u16 = port::MAX_PORT;
 
 /// 后台端口探测的间隔。
 const PROBE_INTERVAL: Duration = Duration::from_secs(2);
@@ -155,6 +155,22 @@ impl ServiceManager {
 
         // 独立启动的（例如用 start.bat 启动的），按端口找到进程再结束
         if let Some(pid) = find_pid_on_port(self.port) {
+            // 端口上可能是别的程序，先确认身份再结束
+            let Some(name) = process_name(pid) else {
+                return Err(format!(
+                    "无法确认端口 {} 上进程的身份，未执行结束操作。",
+                    self.port
+                ));
+            };
+
+            if !is_our_process(&name) {
+                return Err(format!(
+                    "端口 {} 上是「{name}」，不是本系统的服务，没有结束它。\n\
+                     如果确实需要结束该进程，请手动处理。",
+                    self.port
+                ));
+            }
+
             kill_pid(pid)?;
             return Ok(format!("服务已停止（PID {pid}）"));
         }
@@ -204,20 +220,12 @@ impl Default for ServiceManager {
 
 /// 读取 `data/port.txt`。
 pub fn load_port() -> u16 {
-    std::fs::read_to_string(paths::port_file())
-        .ok()
-        .and_then(|text| text.trim().parse::<u16>().ok())
-        .filter(|port| (1..=MAX_PORT).contains(port))
-        .unwrap_or(DEFAULT_PORT)
+    port::read_from_file().unwrap_or(DEFAULT_PORT)
 }
 
 /// 写入 `data/port.txt`。
 pub fn save_port(port: u16) -> Result<(), String> {
-    let path = paths::port_file();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("无法创建数据目录: {e}"))?;
-    }
-    std::fs::write(&path, port.to_string()).map_err(|e| format!("无法写入端口配置: {e}"))
+    port::write_to_file(port).map_err(|e| format!("无法写入端口配置: {e}"))
 }
 
 /// 端口上是否有进程在监听。
@@ -242,6 +250,18 @@ pub fn local_ip() -> Option<String> {
     Some(ip.to_string())
 }
 
+/// netstat 里表示「正在监听」的状态取值。
+///
+/// 状态列是本地化的：英文系统是 `LISTENING`，简体中文系统是「侦听」。
+/// 两种都认，否则在中文 Windows 上永远找不到占用端口的进程。
+const LISTENING_STATES: &[&str] = &["listening", "侦听", "侦听中"];
+
+/// 判断 netstat 的状态列是否表示「正在监听」。
+fn is_listening_state(state: &str) -> bool {
+    let state = state.trim().to_lowercase();
+    LISTENING_STATES.iter().any(|known| state == *known)
+}
+
 /// 用 netstat 找到监听指定端口的进程 PID。
 pub fn find_pid_on_port(port: u16) -> Option<u32> {
     let output = Command::new("netstat")
@@ -252,16 +272,16 @@ pub fn find_pid_on_port(port: u16) -> Option<u32> {
     let text = String::from_utf8_lossy(&output.stdout);
 
     for line in text.lines() {
-        if !line.contains("LISTENING") {
-            continue;
-        }
-
         let columns: Vec<&str> = line.split_whitespace().collect();
         if columns.len() < 5 {
             continue;
         }
 
         // 形如 "TCP  0.0.0.0:5001  0.0.0.0:0  LISTENING  1234"
+        if !is_listening_state(columns[3]) {
+            continue;
+        }
+
         let local = columns[1];
         let Some(listening_port) = local.rsplit(':').next() else {
             continue;
@@ -276,6 +296,35 @@ pub fn find_pid_on_port(port: u16) -> Option<u32> {
     }
 
     None
+}
+
+/// 查询进程名（可执行文件名）。
+pub fn process_name(pid: u32) -> Option<String> {
+    let output = Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
+        .output()
+        .ok()?;
+
+    let text = String::from_utf8_lossy(&output.stdout);
+
+    // CSV 形如 "salary-app-backend.exe","1234","Console","1","12,345 K"
+    let line = text.lines().find(|line| !line.trim().is_empty())?;
+    let name = line.split(',').next()?.trim().trim_matches('"');
+
+    // 进程不存在时 tasklist 输出一行 INFO 提示
+    if name.is_empty() || name.starts_with("INFO") {
+        return None;
+    }
+
+    Some(name.to_string())
+}
+
+/// 进程是否属于本系统。
+///
+/// 托盘停止服务时会结束占用端口的进程——但那个端口上完全可能是别的程序。
+/// 只结束名字里带 salary 的进程，避免误杀无关程序。
+pub fn is_our_process(image_name: &str) -> bool {
+    image_name.to_lowercase().contains("salary")
 }
 
 /// 结束指定进程。
@@ -357,5 +406,57 @@ mod tests {
         let mut manager = ServiceManager::new();
         assert!(manager.set_port(0).is_err());
         assert!(manager.set_port(65535).is_err());
+    }
+
+    #[test]
+    fn listening_state_is_recognized_in_both_languages() {
+        // 英文系统
+        assert!(is_listening_state("LISTENING"));
+        assert!(is_listening_state("listening"));
+        // 简体中文系统
+        assert!(is_listening_state("侦听"));
+
+        assert!(!is_listening_state("ESTABLISHED"));
+        assert!(!is_listening_state("TIME_WAIT"));
+        assert!(!is_listening_state(""));
+    }
+
+    #[test]
+    fn only_our_own_processes_may_be_killed() {
+        assert!(is_our_process("salary-app-backend.exe"));
+        assert!(is_our_process("Salary-Tray.exe"));
+        assert!(is_our_process("SALARY-APP-BACKEND.EXE"));
+
+        assert!(!is_our_process("nginx.exe"));
+        assert!(!is_our_process("chrome.exe"));
+        assert!(!is_our_process("System"));
+    }
+
+    #[test]
+    fn finds_the_pid_of_a_listening_socket() {
+        use std::net::TcpListener;
+
+        // 自己监听一个端口，netstat 应当能查到本进程的 PID
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("应当能监听");
+        let port = listener.local_addr().expect("应当能取到端口").port();
+
+        // netstat 有极小的延迟，重试几次
+        let mut found = None;
+        for _ in 0..10 {
+            found = find_pid_on_port(port);
+            if found.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+
+        assert_eq!(found, Some(std::process::id()));
+    }
+
+    #[test]
+    fn process_name_of_the_current_process() {
+        let name = process_name(std::process::id()).expect("应当能查到本进程名");
+        assert!(!name.is_empty());
+        assert!(!name.starts_with("INFO"));
     }
 }

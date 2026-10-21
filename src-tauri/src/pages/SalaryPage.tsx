@@ -405,6 +405,11 @@ export function SalaryPage() {
         <h1>员工工资查询系统</h1>
         <div className="user-info">
           <span>{employee?.name ?? ''}</span>
+          {employee?.is_admin && (
+            <button type="button" className="logout-btn" onClick={() => navigate('/admin')}>
+              管理
+            </button>
+          )}
           <button type="button" className="logout-btn" onClick={handleLogout}>
             退出
           </button>

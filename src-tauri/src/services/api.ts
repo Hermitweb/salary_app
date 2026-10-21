@@ -131,6 +131,30 @@ export interface CacheStats {
   salary_files_cached: number;
 }
 
+/** 审计事件。 */
+export interface AuditEvent {
+  timestamp: string;
+  ip: string;
+  action: string;
+  employee_id: string;
+  employee_name: string;
+  detail: string;
+}
+
+/** 审计日志响应。 */
+export interface AuditLogResponse {
+  ok: boolean;
+  events: AuditEvent[];
+  error?: string;
+}
+
+/** 缓存统计响应。 */
+export interface CacheStatsResponse {
+  ok: boolean;
+  stats?: CacheStats;
+  error?: string;
+}
+
 /** 登录并保存令牌。 */
 export const login = async (credentials: LoginRequest): Promise<LoginResponse> => {
   try {
@@ -226,12 +250,53 @@ export const healthCheck = async (): Promise<boolean> => {
 };
 
 /** 缓存统计（仅管理员）。 */
-export const getCacheStats = async (): Promise<CacheStats | null> => {
+export const getCacheStats = async (): Promise<CacheStatsResponse> => {
   try {
-    const response = await api.get<{ ok: boolean; stats: CacheStats }>('/api/cache/stats');
-    return response.data.stats ?? null;
-  } catch {
-    return null;
+    const response = await api.get<CacheStatsResponse>('/api/cache/stats');
+    return response.data;
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      return {
+        ok: false,
+        error: error.response?.data?.error || '获取缓存统计失败',
+      };
+    }
+    throw error;
+  }
+};
+
+/** 清空缓存（仅管理员）。 */
+export const invalidateCache = async (): Promise<{ ok: boolean; message?: string; error?: string }> => {
+  try {
+    const response = await api.post<{ ok: boolean; message?: string; error?: string }>(
+      '/api/cache/invalidate',
+    );
+    return response.data;
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      return {
+        ok: false,
+        error: error.response?.data?.error || '清空缓存失败',
+      };
+    }
+    throw error;
+  }
+};
+
+/** 获取审计日志（仅管理员）。 */
+export const getAuditLog = async (limit = 100): Promise<AuditLogResponse> => {
+  try {
+    const response = await api.get<AuditLogResponse>(`/api/audit/log?limit=${limit}`);
+    return { ok: response.data.ok, events: response.data.events ?? [] };
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      return {
+        ok: false,
+        events: [],
+        error: error.response?.data?.error || '获取审计日志失败',
+      };
+    }
+    throw error;
   }
 };
 

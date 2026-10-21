@@ -2,6 +2,7 @@
 
 import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { AdminPage } from './pages/AdminPage';
 import { LoginPage } from './pages/LoginPage';
 import { SalaryPage } from './pages/SalaryPage';
 
@@ -26,6 +27,16 @@ function App() {
           element={
             <ProtectedRoute>
               <SalaryPage />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* 需要管理员权限 */}
+        <Route
+          path="/admin"
+          element={
+            <ProtectedRoute adminOnly>
+              <AdminPage />
             </ProtectedRoute>
           }
         />
