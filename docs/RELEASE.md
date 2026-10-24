@@ -14,14 +14,14 @@
 
 | 文件 | 字段 | 当前值 | 对应产物 |
 | --- | --- | --- | --- |
-| `src-tauri/Cargo.toml` | `[package] version` | `0.2.0` | `salary-app-backend.exe` |
-| `tray/Cargo.toml` | `[package] version` | `0.2.0` | `salary-tray.exe` |
+| `src-tauri/Cargo.toml` | `[package] version` | `0.3.0` | `salary-app-backend.exe` |
+| `tray/Cargo.toml` | `[package] version` | `0.3.0` | `salary-tray.exe` |
 
 ```toml
 # src-tauri/Cargo.toml
 [package]
 name = "salary-app-backend"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.85"
 ```
@@ -30,7 +30,7 @@ rust-version = "1.85"
 # tray/Cargo.toml
 [package]
 name = "salary-tray"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.85"
 ```
@@ -319,7 +319,7 @@ Get-ChildItem .\web\assets
 
 ```powershell
 $stage = "D:\release\salary-app"
-$zip = "D:\release\salary-app-0.2.0.zip"
+$zip = "D:\release\salary-app-0.3.0.zip"
 Remove-Item $zip -Force -ErrorAction SilentlyContinue
 Compress-Archive -Path "$stage\*" -DestinationPath $zip
 ```

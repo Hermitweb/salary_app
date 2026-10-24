@@ -2248,11 +2248,8 @@ fn render_manual(dc: HDC, model: &Model, fonts: &Fonts, palette: &Palette, layou
     }
 }
 
-/// 项目仓库地址（「关于应用」页展示）。
-///
-/// 仓库目前没有配置远程地址：留空时页面显示「未配置」，
-/// 有了实际地址后把这里改成 URL 即可（复制与打开按钮共用它）。
-pub const REPO_URL: &str = "";
+/// 项目仓库地址（「关于应用」页展示，复制与打开按钮共用它）。
+pub const REPO_URL: &str = "https://github.com/Hermitweb/salary_app";
 
 /// 关于应用页：项目介绍、运行环境、日志入口与项目地址。
 fn render_about(
