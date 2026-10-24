@@ -1,0 +1,35 @@
+# 统一编辑器行为
+#
+# 与 .gitattributes 配套：仓库内容以 LF 存储，
+# Windows 原生脚本（*.ps1 / *.bat）例外，用 CRLF。
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{rs,toml,yml,yaml,json,ts,tsx,css,html}]
+indent_size = 4
+
+[*.{yml,yaml,json,ts,tsx,css,html}]
+indent_size = 2
+
+[*.md]
+# 文档里行尾的两个空格是 Markdown 的换行写法，不能被裁掉
+trim_trailing_whitespace = false
+
+[*.py]
+indent_size = 4
+
+[*.bat]
+end_of_line = crlf
+
+[*.cmd]
+end_of_line = crlf
+
+[*.ps1]
+end_of_line = crlf

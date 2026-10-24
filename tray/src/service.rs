@@ -24,6 +24,15 @@ const MAX_PORT: u16 = port::MAX_PORT;
 /// 后台端口探测的间隔。
 const PROBE_INTERVAL: Duration = Duration::from_secs(2);
 
+/// 自动重启的计数窗口。
+///
+/// 窗口内重启次数超过上限就不再自动拉起：
+/// 反复起不来说明是配置或数据的问题，继续重启只会刷屏。
+const RESTART_WINDOW: Duration = Duration::from_secs(600);
+
+/// 一个窗口内最多自动重启几次。
+const MAX_RESTART_COUNT: u32 = 5;
+
 /// 后台端口探测结果缓存。
 ///
 /// 界面线程只读 `listening`，探测本身在后台线程完成。
@@ -79,6 +88,12 @@ pub struct ServiceManager {
     port: u16,
     /// 后台端口探测缓存。
     probe: Arc<PortProbe>,
+    /// 服务「本该在跑」——用户点了启动才是真，停掉就清掉。
+    expected_running: bool,
+    /// 窗口内自动重启的次数。
+    restart_count: u32,
+    /// 上次自动重启的时间。
+    last_restart: Option<Instant>,
 }
 
 impl ServiceManager {
@@ -89,6 +104,9 @@ impl ServiceManager {
             runtime: None,
             port,
             probe: PortProbe::spawn(port),
+            expected_running: false,
+            restart_count: 0,
+            last_restart: None,
         }
     }
 
@@ -141,12 +159,18 @@ impl ServiceManager {
 
         let runtime = server::spawn_server(self.port).map_err(|e| format!("启动失败: {e}"))?;
         self.runtime = Some(runtime);
+        self.expected_running = true;
+        // 手动启动算「一切正常」，把自动重启的计数清零
+        self.restart_count = 0;
+        self.last_restart = None;
 
         Ok(format!("服务已启动（端口 {}）", self.port))
     }
 
     /// 停止服务。
     pub fn stop(&mut self) -> Result<String, String> {
+        self.expected_running = false;
+
         // 是本程序启动的服务，直接停
         if let Some(runtime) = self.runtime.take() {
             runtime.stop();
@@ -182,10 +206,64 @@ impl ServiceManager {
     pub fn local_url(&self) -> String {
         format!("http://localhost:{}", self.port)
     }
+    /// 窗口内自动重启过几次。
+    pub fn restart_count(&self) -> u32 {
+        self.restart_count
+    }
 
+    /// 服务是不是「本该在跑却掉线了」。
+    ///
+    /// 判据：用户开着服务、运行时已经不在、端口也没人在听。
+    /// 独立启动的服务（用 `start.bat` 起的）端口还在听，不算掉线。
+    pub fn dropped(&self) -> bool {
+        if !self.expected_running {
+            return false;
+        }
+        if self.runtime_running() {
+            return false;
+        }
+        !self.probe.is_listening()
+    }
+
+    /// 把掉线的服务重新拉起来。
+    pub fn restart(&mut self) -> Result<String, String> {
+        let now = Instant::now();
+        if let Some(last) = self.last_restart {
+            if now.duration_since(last) > RESTART_WINDOW {
+                // 新的故障周期，计数从头来
+                self.restart_count = 0;
+            }
+        }
+        self.restart_count += 1;
+        self.last_restart = Some(now);
+
+        if self.restart_count > MAX_RESTART_COUNT {
+            self.expected_running = false;
+            return Err(format!(
+                "服务连续掉线 {} 次，已停止自动重启，请检查端口占用或数据目录权限",
+                self.restart_count
+            ));
+        }
+
+        self.runtime = None;
+        let runtime = server::spawn_server(self.port).map_err(|e| format!("自动重启失败: {e}"))?;
+        self.runtime = Some(runtime);
+        self.expected_running = true;
+
+        Ok(format!(
+            "服务异常退出，已自动恢复（第 {} 次）",
+            self.restart_count
+        ))
+    }
     /// 局域网访问地址。
     pub fn lan_url(&self) -> Option<String> {
         self.lan_ip().map(|ip| format!("http://{ip}:{}", self.port))
+    }
+
+    /// 局域网 HTTPS 访问地址（端口 +1）。
+    pub fn lan_https_url(&self) -> Option<String> {
+        self.lan_ip()
+            .map(|ip| format!("https://{ip}:{}", self.port.saturating_add(1)))
     }
 
     /// 本机局域网 IP（结果缓存，避免每次刷新都重新探测）。

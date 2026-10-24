@@ -20,8 +20,6 @@ pub const PASSWORD_KEYWORDS: &[&str] =
 const NAME_KEYWORDS: &[&str] = &["姓名", "名字"];
 /// 部门列关键字。
 const DEPT_KEYWORDS: &[&str] = &["部门", "科室"];
-/// 管理员标记列关键字。
-const ADMIN_KEYWORDS: &[&str] = &["管理员", "是否管理员", "角色"];
 /// 在职状态列关键字。
 const STATUS_KEYWORDS: &[&str] = &["离职", "在职状态", "状态"];
 
@@ -38,8 +36,14 @@ const RESIGNED_VALUES: &[&str] = &[
     "注销",
 ];
 
-/// 视为「管理员」的取值（比较时忽略大小写）。
-const ADMIN_VALUES: &[&str] = &["是", "管理员", "admin", "y", "1", "true"];
+/// 判断某个在职状态取值是否表示「已离职」。
+///
+/// 登录校验与控制面板的账号列表都用这个判断：
+/// 已停用的账号不该出现在面板的账号下拉里。
+pub fn is_resigned(status: &str) -> bool {
+    let status = status.trim();
+    RESIGNED_VALUES.contains(&status.to_lowercase().as_str()) || RESIGNED_VALUES.contains(&status)
+}
 
 /// 查找列索引：先精确匹配，命中不了再退回到模糊匹配。
 ///
@@ -89,6 +93,99 @@ pub fn cell_to_string(value: &Data) -> String {
     }
 }
 
+/// 规范化字段名：去掉首尾空白。
+///
+/// 工资表表头与 `fields.txt` 里的键都必须走这个口径：
+/// 表头带一个空格而配置键不带的话，字段显示配置就会「改了不生效」。
+pub fn normalize_field_name(name: &str) -> String {
+    name.trim().to_string()
+}
+
+/// 登录字段映射：网页登录的账号列与密码列分别是哪一列。
+///
+/// 控制面板从表头里选好之后写进 `data/login_fields.json`；
+/// 两列都允许为空——为空表示沿用关键字探测（[`ID_KEYWORDS`] / [`PASSWORD_KEYWORDS`]）。
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LoginFieldMapping {
+    /// 账号列的表头名。
+    #[serde(default)]
+    pub account_field: String,
+    /// 密码列的表头名。
+    #[serde(default)]
+    pub password_field: String,
+}
+
+impl LoginFieldMapping {
+    /// 映射是否一个字段都没配。
+    pub fn is_empty(&self) -> bool {
+        self.account_field.trim().is_empty() && self.password_field.trim().is_empty()
+    }
+}
+
+/// 读取登录字段映射；文件不存在或损坏时返回空映射（走关键字探测）。
+pub fn read_login_mapping() -> LoginFieldMapping {
+    let path = crate::paths::login_fields_file();
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return LoginFieldMapping::default();
+    };
+
+    serde_json::from_str(&text).unwrap_or_default()
+}
+
+/// 保存登录字段映射（原子写，写一半被读到会拿到半截 JSON）。
+pub fn write_login_mapping(mapping: &LoginFieldMapping) -> Result<(), String> {
+    let path = crate::paths::login_fields_file();
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| format!("创建数据目录失败: {error}"))?;
+    }
+
+    let text = serde_json::to_string_pretty(mapping)
+        .map_err(|error| format!("序列化登录字段映射失败: {error}"))?;
+
+    let temp = path.with_extension(format!("json.{}.tmp", std::process::id()));
+    std::fs::write(&temp, text).map_err(|error| format!("写入登录字段映射失败: {error}"))?;
+    std::fs::rename(&temp, path).map_err(|error| format!("保存登录字段映射失败: {error}"))?;
+
+    Ok(())
+}
+
+/// 按表头名找列：规范化后精确匹配。
+///
+/// 登录字段映射里存的是表头名，加载员工表时用这个名字对号入座。
+fn find_named_column(headers: &[String], name: &str) -> Option<usize> {
+    let name = normalize_field_name(name);
+    if name.is_empty() {
+        return None;
+    }
+
+    headers
+        .iter()
+        .position(|header| normalize_field_name(header) == name)
+}
+
+/// 解析员工表时先看映射、再看关键字。
+///
+/// 映射里配了但表里没有这一列时退回关键字探测：
+/// 控制面板的候选列表来自同一张表，正常不会出现这种情况，
+/// 但表头被人改掉时宁可退回默认行为，也不要让登录整个挂掉。
+fn resolve_login_columns(
+    headers: &[String],
+    mapping: &LoginFieldMapping,
+) -> (Option<usize>, Option<usize>) {
+    let employee_id_idx = match find_named_column(headers, &mapping.account_field) {
+        Some(index) => Some(index),
+        None => find_column_index(headers, ID_KEYWORDS),
+    };
+
+    let password_idx = match find_named_column(headers, &mapping.password_field) {
+        Some(index) => Some(index),
+        None => find_column_index(headers, PASSWORD_KEYWORDS),
+    };
+
+    (employee_id_idx, password_idx)
+}
+
 /// 比较两个工号是否指向同一个人。
 ///
 /// Excel 里 `001` 可能被存成文本 `001`，也可能被存成数字 `1`，
@@ -119,7 +216,6 @@ pub struct EmployeesData {
     pub password_idx: Option<usize>,
     pub name_idx: Option<usize>,
     pub dept_idx: Option<usize>,
-    pub admin_idx: Option<usize>,
     pub status_idx: Option<usize>,
     /// 员工表的结构类型。
     pub mode: SheetMode,
@@ -135,7 +231,6 @@ impl EmployeesData {
             password_idx: None,
             name_idx: None,
             dept_idx: None,
-            admin_idx: None,
             status_idx: None,
             mode: SheetMode::Standard,
         }
@@ -156,7 +251,7 @@ impl EmployeesData {
 /// 员工表的两种结构。
 ///
 /// - 标准模式：第 1 行是表头（工号 / 姓名 / 部门 …），第 2 行起每行一名员工；
-/// - 原始模式：每一列是一名员工，前 5 行依次是工号、密码、姓名、部门、管理员。
+/// - 原始模式：每一列是一名员工，前 4 行依次是工号、密码、姓名、部门。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SheetMode {
     Standard,
@@ -258,11 +353,12 @@ impl ExcelParser {
     fn load_standard(grid: &[Vec<String>]) -> Result<EmployeesData, AppError> {
         let headers = grid[0].clone();
 
-        let employee_id_idx = find_column_index(&headers, ID_KEYWORDS);
-        let password_idx = find_column_index(&headers, PASSWORD_KEYWORDS);
+        // 登录字段映射优先：控制面板里选了哪列当账号/密码，就以它为准
+        let mapping = read_login_mapping();
+        let (employee_id_idx, password_idx) = resolve_login_columns(&headers, &mapping);
+
         let name_idx = find_column_index(&headers, NAME_KEYWORDS);
         let dept_idx = find_column_index(&headers, DEPT_KEYWORDS);
-        let admin_idx = find_column_index(&headers, ADMIN_KEYWORDS);
         let status_idx = find_column_index(&headers, STATUS_KEYWORDS);
 
         if employee_id_idx.is_none() {
@@ -302,15 +398,17 @@ impl ExcelParser {
             password_idx,
             name_idx,
             dept_idx,
-            admin_idx,
             status_idx,
             mode: SheetMode::Standard,
         })
     }
 
-    /// 原始模式：每列一名员工，前 5 行分别是工号、密码、姓名、部门、管理员。
+    /// 原始模式：每列一名员工，前 4 行分别是工号、密码、姓名、部门。
+    ///
+    /// 第 5 行历史上是管理员标记。网页端已不再区分管理员，该行直接忽略——
+    /// 但前 4 行的位置不能动，否则工号/密码/姓名/部门会整体错位。
     fn load_raw(grid: &[Vec<String>]) -> Result<EmployeesData, AppError> {
-        const RAW_HEADERS: [&str; 5] = ["工号", "密码", "姓名", "部门", "管理员"];
+        const RAW_HEADERS: [&str; 4] = ["工号", "密码", "姓名", "部门"];
 
         let headers: Vec<String> = RAW_HEADERS.iter().map(|h| h.to_string()).collect();
         let width = grid.iter().map(|row| row.len()).max().unwrap_or(0);
@@ -345,7 +443,6 @@ impl ExcelParser {
             password_idx: Some(1),
             name_idx: Some(2),
             dept_idx: Some(3),
-            admin_idx: Some(4),
             status_idx: None,
             mode: SheetMode::Raw,
         })
@@ -382,9 +479,7 @@ impl ExcelParser {
 
             // 已离职的账号不允许登录
             if let Some(status) = employees.value(row, employees.status_idx) {
-                if RESIGNED_VALUES.contains(&status.to_lowercase().as_str())
-                    || RESIGNED_VALUES.contains(&status)
-                {
+                if is_resigned(status) {
                     return Err(AppError::AuthenticationFailed("该账号已停用".to_string()));
                 }
             }
@@ -399,21 +494,10 @@ impl ExcelParser {
                 .filter(|value| !value.is_empty())
                 .map(str::to_string);
 
-            // 管理员标记：优先看「管理员/角色/权限」列，没有则看部门名。
-            let is_admin = employees
-                .value(row, employees.admin_idx)
-                .map(|value| {
-                    let value = value.to_lowercase();
-                    ADMIN_VALUES.iter().any(|flag| *flag == value)
-                })
-                .unwrap_or(false)
-                || dept.as_deref().map(|d| d == "管理员").unwrap_or(false);
-
             return Ok(Employee {
                 employee_id: employee_id.to_string(),
                 name,
                 dept,
-                is_admin,
             });
         }
 
@@ -440,7 +524,7 @@ impl ExcelParser {
                 continue;
             };
 
-            let key = key.trim().to_string();
+            let key = normalize_field_name(key);
             let value = value.trim().to_lowercase();
 
             let state = match value.as_str() {
@@ -459,6 +543,28 @@ impl ExcelParser {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn field_names_are_normalized_the_same_way_everywhere() {
+        assert_eq!(normalize_field_name(" 绩效 "), "绩效");
+        assert_eq!(normalize_field_name("绩效"), "绩效");
+    }
+
+    #[test]
+    fn config_keys_match_headers_regardless_of_surrounding_whitespace() {
+        // 配置里的键带空白时，去空白后的表头也要能命中
+        let path = std::env::temp_dir().join("salary-field-config-key-test.txt");
+        std::fs::write(&path, "  绩效  =  隐藏  \n").unwrap();
+
+        let config = ExcelParser::load_field_config(&path).expect("配置应当可读");
+        assert_eq!(config.config.get("绩效"), Some(&FieldState::Hide));
+        assert!(
+            !config.should_show("绩效", "1200"),
+            "隐藏应当对去空白后的表头生效"
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
 
     #[test]
     fn column_index_prefers_exact_match() {
@@ -489,6 +595,60 @@ mod tests {
 
         assert_eq!(find_employee_id_column(&salary_headers), Some(0));
         assert_eq!(find_employee_id_column(&employee_headers), Some(0));
+    }
+
+    #[test]
+    fn login_mapping_overrides_keyword_detection() {
+        // 控制面板选了「登录名」当账号列、「口令」当密码列：
+        // 解析员工表时就应当按这两列来，而不是关键字探测的结果
+        let headers = vec![
+            "登录名".to_string(),
+            "口令".to_string(),
+            "工号".to_string(),
+            "紧急联系人号码".to_string(),
+        ];
+
+        let mapping = LoginFieldMapping {
+            account_field: "登录名".to_string(),
+            password_field: "口令".to_string(),
+        };
+
+        let (id_idx, password_idx) = resolve_login_columns(&headers, &mapping);
+        assert_eq!(id_idx, Some(0), "账号列应当按映射取「登录名」");
+        assert_eq!(password_idx, Some(1), "密码列应当按映射取「口令」");
+    }
+
+    #[test]
+    fn login_mapping_falls_back_when_column_missing() {
+        // 映射里配的字段在表里不存在时，退回关键字探测而不是报错
+        let headers = vec!["工号".to_string(), "紧急联系人号码".to_string()];
+
+        let mapping = LoginFieldMapping {
+            account_field: "不存在的列".to_string(),
+            password_field: "也不存在".to_string(),
+        };
+
+        let (id_idx, password_idx) = resolve_login_columns(&headers, &mapping);
+        assert_eq!(id_idx, Some(0));
+        assert_eq!(password_idx, Some(1));
+    }
+
+    #[test]
+    fn login_mapping_serializes_with_empty_fields() {
+        // 空映射（未配置）也要能落盘、能读回——
+        // 控制面板保存「仅改密码字段」这类部分配置时不该被序列化卡住
+        let empty = LoginFieldMapping::default();
+        let text = serde_json::to_string(&empty).unwrap();
+        assert_eq!(empty, serde_json::from_str(&text).unwrap());
+
+        let partial = LoginFieldMapping {
+            account_field: "工号".to_string(),
+            password_field: String::new(),
+        };
+        let text = serde_json::to_string(&partial).unwrap();
+        let parsed: LoginFieldMapping = serde_json::from_str(&text).unwrap();
+        assert_eq!(parsed.account_field, "工号");
+        assert!(parsed.password_field.is_empty());
     }
 
     #[test]
@@ -530,12 +690,13 @@ mod tests {
         assert_eq!(employee.employee_id, "002");
         assert_eq!(employee.name.as_deref(), Some("李四"));
         assert_eq!(employee.dept.as_deref(), Some("财务部"));
-        assert!(!employee.is_admin);
 
-        // 第 5 行是管理员标记
-        let admin =
-            ExcelParser::authenticate(&employees, "003", "admin2026").expect("管理员应当能登录");
-        assert!(admin.is_admin);
+        // 第 5 行原本是管理员标记，现在不再区分管理员：
+        // 那一列的员工照样能登录，姓名部门也不能因为少读一行而错位。
+        let third = ExcelParser::authenticate(&employees, "003", "admin2026").expect("应当能登录");
+        assert_eq!(third.employee_id, "003");
+        assert_eq!(third.name.as_deref(), Some("王五"));
+        assert_eq!(third.dept.as_deref(), Some("人力资源部"));
 
         // 密码错误不通过
         assert!(ExcelParser::authenticate(&employees, "002", "wrong").is_err());

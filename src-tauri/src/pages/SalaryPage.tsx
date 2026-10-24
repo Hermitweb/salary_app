@@ -52,6 +52,7 @@ export function SalaryPage() {
   const [fields, setFields] = useState<PayslipField[]>([]);
   const [netSalary, setNetSalary] = useState('0');
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(true);
 
   // 可选年份（倒序）与某一年份下的月份（倒序）
@@ -130,10 +131,17 @@ export function SalaryPage() {
 
         setFields(nextFields);
         setNetSalary(net);
+        // 后端查不到该月份时会回落到最新的一份，并说明实际给的是哪个月
+        setNotice(result.notice || '');
+        if (result.year && result.month) {
+          setYear(String(result.year));
+          setMonth(String(result.month));
+        }
       } else {
         setError(result.error || '查询失败');
         setFields([]);
         setNetSalary('0');
+        setNotice('');
       }
 
       setLoading(false);
@@ -192,6 +200,9 @@ export function SalaryPage() {
     const title = `${name} - ${year}年${month}月工资条`;
     const tableEl = tableRef.current?.outerHTML ?? '';
 
+    /* eslint-disable no-useless-escape --
+       模板里的 <\/script> 必须保持转义：这段字符串最终会被写进导出 PDF 的
+       HTML 文档，未转义的 </script> 会提前闭合内联脚本标签。 */
     win.document.write(`
       <!DOCTYPE html>
       <html lang="zh-CN">
@@ -278,6 +289,7 @@ export function SalaryPage() {
       </body>
       </html>
     `);
+    /* eslint-enable no-useless-escape */
     win.document.close();
   };
 
@@ -405,11 +417,6 @@ export function SalaryPage() {
         <h1>员工工资查询系统</h1>
         <div className="user-info">
           <span>{employee?.name ?? ''}</span>
-          {employee?.is_admin && (
-            <button type="button" className="logout-btn" onClick={() => navigate('/admin')}>
-              管理
-            </button>
-          )}
           <button type="button" className="logout-btn" onClick={handleLogout}>
             退出
           </button>
@@ -464,6 +471,8 @@ export function SalaryPage() {
           )}
         </div>
 
+        {notice && !error ? <div className="notice-card">{notice}</div> : null}
+
         {error ? (
           <div className="error-card">{error}</div>
         ) : loading ? (
@@ -471,7 +480,7 @@ export function SalaryPage() {
             <div className="empty-hint">正在加载…</div>
           </div>
         ) : fields.length > 0 ? (
-          <div className="card">
+          <div className="card payslip-card">
             <div className="toolbar no-print">
               <div className="title-text">{titleText}</div>
               <div className="btn-group">

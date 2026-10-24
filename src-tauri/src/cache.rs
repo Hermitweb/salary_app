@@ -2,7 +2,7 @@
 
 use crate::error::AppError;
 use crate::excel_parser::EmployeesData;
-use crate::models::{CacheStats, SalaryRow};
+use crate::models::SalaryRow;
 use calamine::Reader;
 use moka::sync::Cache as MokaCache;
 use std::path::Path;
@@ -55,8 +55,14 @@ impl DataCache {
     }
 
     /// 加载员工表（按修改时间缓存）。
+    ///
+    /// 缓存键里带上登录字段映射的修改时间：
+    /// 控制面板改了「哪个字段当账号/密码」后，员工表的解析结果
+    /// （哪一列是工号/密码列）会跟着变，仅凭员工表自己的 mtime
+    /// 感知不到这种变化，这里把映射文件的 mtime 并进键里。
     pub fn get_employees(&self, path: &Path) -> Result<Arc<EmployeesData>, AppError> {
-        let key = path.display().to_string();
+        let mapping_mtime = modified_ns(&crate::paths::login_fields_file());
+        let key = format!("{}#{}", path.display(), mapping_mtime);
         let mtime_ns = modified_ns(path);
 
         if let Some(entry) = self.employees.get(&key) {
@@ -108,26 +114,6 @@ impl DataCache {
 
         Ok(value)
     }
-
-    /// 清空所有缓存。
-    pub fn invalidate_all(&self) {
-        self.employees.invalidate_all();
-        self.salaries.invalidate_all();
-        self.employees.run_pending_tasks();
-        self.salaries.run_pending_tasks();
-    }
-
-    /// 缓存统计。
-    pub fn stats(&self) -> CacheStats {
-        self.employees.run_pending_tasks();
-        self.salaries.run_pending_tasks();
-
-        CacheStats {
-            hits: self.hits.load(Ordering::Relaxed),
-            misses: self.misses.load(Ordering::Relaxed),
-            salary_files_cached: self.salaries.entry_count() as usize,
-        }
-    }
 }
 
 impl Default for DataCache {
@@ -164,9 +150,16 @@ fn load_salary_from_disk(path: &Path) -> Result<(Vec<String>, Vec<SalaryRow>), A
         return Ok((headers, rows));
     };
 
+    // 表头与字段显示配置用同一个口径去掉首尾空白。
+    //
+    // 字段显示配置（`data/fields.txt`）是按字段名查表的，
+    // 而配置里的键是去空白的；这里不统一的话，
+    // 表头带一个空格就能让配置「改了不生效」。
     headers = first_row
         .iter()
-        .map(crate::excel_parser::cell_to_string)
+        .map(|cell| {
+            crate::excel_parser::normalize_field_name(&crate::excel_parser::cell_to_string(cell))
+        })
         .collect();
 
     for row in row_iter {

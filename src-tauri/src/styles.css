@@ -1,7 +1,58 @@
 /* ============================================================
    员工工资查询系统 —— 样式
    与 Python 版（templates/login.html、templates/salary.html）保持一致
+
+   设计 token 集中在 :root：间距 / 圆角 / 字号 / 布局宽度。
+   组件只引用变量，调数值只需改一处。
    ============================================================ */
+
+:root {
+    /* ---- 间距刻度（4px 栅格基准，见 设计风格规范.md §4）----
+       space-1 细控件内边距 · space-2 标签与间隙 ·
+       space-3 控件内边距 · space-4 卡片 / 区块间距 ·
+       space-5 卡片内边距与区块间距 · space-6 页面级留白 ·
+       space-7 登录页留白 · space-8 空态留白 */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
+    --space-7: 40px;
+    --space-8: 48px;
+
+    /* ---- 圆角（浅色主题阶梯：xs 2 / sm 4 / md 6 / lg 8 / pill 胶囊）---- */
+    --radius-xs: 2px;
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 8px;
+    --radius-pill: 9999px;
+
+    /* ---- 字号阶梯（标号 13 / 正文 14 / 次级 12）---- */
+    --font-size-xs: 11px;
+    --font-size-sm: 12px;
+    --font-size-md: 13px;
+    --font-size-base: 14px;
+    --font-size-lg: 15px;
+    --font-size-xl: 16px;
+    --font-size-2xl: 20px;
+    --font-size-3xl: 24px;
+
+    /* ---- 布局 ---- */
+    --layout-max-width: 1200px;
+    --layout-gutter: var(--space-5);
+
+    /* ---- 工资条表格密度 ----
+       单元格横向内边距决定表格固有宽度，表格宽度又决定 .payslip-card 的宽度
+       与居中留白（1264px 视口下左右各留 289.9px），所以单独成变量：
+       要调密度就得连同卡片居中留白一起确认。 */
+    --space-cell-y: 6px;
+    --space-cell-x: 8px;
+    --space-head-cell-x: 6px;
+    /* 打印时表格压得更紧，且不再锁定 min-width，以便铺满版心 */
+    --space-print-cell-y: 3px;
+    --space-print-cell-x: 4px;
+}
 
 * {
     box-sizing: border-box;
@@ -10,11 +61,17 @@
 }
 
 body {
-    font-family: "Microsoft YaHei", "PingFang SC", -apple-system, BlinkMacSystemFont,
-        "Segoe UI", sans-serif;
+    font-family:
+        "Microsoft YaHei",
+        "PingFang SC",
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
     background: #f5f7fa;
     min-height: 100vh;
     color: #1a2332;
+    font-size: var(--font-size-base);
 }
 
 button {
@@ -35,8 +92,8 @@ button {
 
 .login-container {
     background: #fff;
-    border-radius: 8px;
-    padding: 48px 40px;
+    border-radius: var(--radius-lg);
+    padding: var(--space-8) var(--space-7);
     width: 400px;
     max-width: 90%;
     border: 1px solid #e8ecf1;
@@ -44,53 +101,55 @@ button {
 
 .logo {
     text-align: center;
-    margin-bottom: 36px;
+    margin-bottom: var(--space-6);
 }
 
 .logo-icon {
     width: 48px;
     height: 48px;
     background: #f0f4f8;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    margin-bottom: 16px;
-    font-size: 24px;
+    margin-bottom: var(--space-4);
+    font-size: var(--font-size-3xl);
 }
 
 .logo h1 {
-    font-size: 20px;
+    font-size: var(--font-size-2xl);
     font-weight: 600;
     color: #1a2332;
-    margin-bottom: 6px;
+    margin-bottom: var(--space-2);
     letter-spacing: 0.5px;
 }
 
 .logo p {
-    font-size: 13px;
+    font-size: var(--font-size-md);
     color: #8a99ab;
 }
 
 .form-group {
-    margin-bottom: 20px;
+    margin-bottom: var(--space-5);
 }
 
 .form-group label {
     display: block;
-    font-size: 13px;
+    font-size: var(--font-size-md);
     color: #5a6a7a;
-    margin-bottom: 8px;
+    margin-bottom: var(--space-2);
     font-weight: 500;
 }
 
 .form-group input {
     width: 100%;
-    padding: 12px 14px;
+    padding: var(--space-3) var(--space-4);
     border: 1px solid #dde3ea;
-    border-radius: 6px;
-    font-size: 14px;
-    transition: border-color 0.2s, box-shadow 0.2s;
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-base);
+    transition:
+        border-color 0.2s,
+        box-shadow 0.2s;
     outline: none;
     background: #fafbfc;
     font-family: inherit;
@@ -106,46 +165,46 @@ button {
     background: #fef2f2;
     color: #dc2626;
     border: 1px solid #fecaca;
-    padding: 10px 14px;
-    border-radius: 6px;
-    margin-bottom: 20px;
-    font-size: 13px;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--space-5);
+    font-size: var(--font-size-md);
 }
 
 .info-msg {
     background: #eff6ff;
     color: #1d4ed8;
     border: 1px solid #bfdbfe;
-    padding: 10px 14px;
-    border-radius: 6px;
-    margin-bottom: 20px;
-    font-size: 13px;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--space-5);
+    font-size: var(--font-size-md);
 }
 
 .pwd-hint {
     background: #f8fafc;
     border: 1px dashed #cbd5e1;
     color: #64748b;
-    padding: 10px 14px;
-    border-radius: 6px;
-    margin-top: 16px;
-    font-size: 12px;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    margin-top: var(--space-4);
+    font-size: var(--font-size-sm);
     line-height: 1.7;
     text-align: center;
 }
 
 .login-btn {
     width: 100%;
-    padding: 12px;
+    padding: var(--space-3);
     background: #3b82f6;
     color: #fff;
     border: none;
-    border-radius: 6px;
-    font-size: 15px;
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-lg);
     font-weight: 500;
     cursor: pointer;
     transition: background 0.2s;
-    margin-top: 8px;
+    margin-top: var(--space-2);
 }
 
 .login-btn:hover {
@@ -163,8 +222,8 @@ button {
 
 .footer {
     text-align: center;
-    margin-top: 28px;
-    font-size: 12px;
+    margin-top: var(--space-6);
+    font-size: var(--font-size-sm);
     color: #a0aec0;
 }
 
@@ -173,7 +232,7 @@ button {
     left: 0;
     right: 0;
     bottom: 0;
-    padding: 8px 16px;
+    padding: var(--space-2) var(--space-4);
     background: #fef2f2;
     border-top: 1px solid #fecaca;
     color: #b91c1c;
@@ -194,16 +253,19 @@ button {
 .header {
     background: #fff;
     border-bottom: 1px solid #e8ecf1;
-    padding: 16px 32px;
+    padding: var(--space-4) var(--space-6);
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: var(--space-4);
 }
 
 .header h1 {
-    font-size: 16px;
+    font-size: var(--font-size-xl);
     font-weight: 600;
     color: #1a2332;
+    min-width: 0;
+    overflow-wrap: break-word;
 }
 
 .header h1::before {
@@ -212,26 +274,28 @@ button {
     width: 4px;
     height: 16px;
     background: #3b82f6;
-    border-radius: 2px;
-    margin-right: 10px;
+    border-radius: var(--radius-xs);
+    margin-right: var(--space-3);
     vertical-align: middle;
 }
 
 .user-info {
     display: flex;
     align-items: center;
-    gap: 16px;
-    font-size: 13px;
+    gap: var(--space-4);
+    font-size: var(--font-size-md);
     color: #5a6a7a;
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .logout-btn {
     color: #3b82f6;
     text-decoration: none;
-    font-size: 13px;
-    padding: 6px 14px;
+    font-size: var(--font-size-md);
+    padding: var(--space-2) var(--space-4);
     border: 1px solid #dde3ea;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     transition: all 0.2s;
     background: transparent;
     cursor: pointer;
@@ -243,72 +307,72 @@ button {
 }
 
 .container {
-    max-width: 1200px;
-    margin: 24px auto;
-    padding: 0 24px;
+    max-width: var(--layout-max-width);
+    margin: var(--space-5) auto;
+    padding: 0 var(--layout-gutter);
 }
 
 .card {
     background: #fff;
-    border-radius: 6px;
-    padding: 20px 24px;
-    margin-bottom: 16px;
+    border-radius: var(--radius-md);
+    padding: var(--space-5) var(--space-5);
+    margin-bottom: var(--space-4);
     border: 1px solid #e8ecf1;
 }
 
 .selector-card {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: var(--space-4);
     flex-wrap: wrap;
 }
 
 .salary-badge {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 10px 20px;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
     background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
     border: 1px solid #fde68a;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
 }
 
 .salary-badge-label {
-    font-size: 14px;
+    font-size: var(--font-size-base);
     color: #92400e;
     font-weight: 500;
 }
 
 .salary-badge-value {
-    font-size: 24px;
+    font-size: var(--font-size-3xl);
     font-weight: 700;
     color: #b45309;
     font-family: Consolas, "Courier New", monospace;
 }
 
 .salary-badge-value .currency {
-    font-size: 15px;
-    margin-left: 2px;
+    font-size: var(--font-size-lg);
+    margin-left: var(--space-1);
 }
 
 .selector-form {
     display: flex;
-    gap: 12px;
+    gap: var(--space-3);
     align-items: center;
     flex-wrap: wrap;
 }
 
 .selector-label {
-    font-size: 14px;
+    font-size: var(--font-size-base);
     color: #5a6a7a;
     font-weight: 500;
 }
 
 .month-select {
-    padding: 8px 12px;
+    padding: var(--space-2) var(--space-3);
     border: 1px solid #dde3ea;
-    border-radius: 4px;
-    font-size: 13px;
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-md);
     min-width: 120px;
     outline: none;
     cursor: pointer;
@@ -316,12 +380,12 @@ button {
 }
 
 .query-btn {
-    padding: 8px 20px;
+    padding: var(--space-2) var(--space-4);
     background: #3b82f6;
     color: #fff;
     border: none;
-    border-radius: 4px;
-    font-size: 13px;
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-md);
     font-weight: 500;
     cursor: pointer;
     transition: background 0.2s;
@@ -336,29 +400,31 @@ button {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 16px;
+    margin-bottom: var(--space-4);
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--space-2);
 }
 
 .title-text {
-    font-size: 15px;
+    font-size: var(--font-size-lg);
     font-weight: 600;
     color: #1a2332;
 }
 
 .btn-group {
     display: flex;
-    gap: 8px;
+    gap: var(--space-2);
+    /* 按钮放不下时换行，避免窄屏把卡片撑出横向滚动条 */
+    flex-wrap: wrap;
 }
 
 .export-btn {
-    padding: 8px 20px;
+    padding: var(--space-2) var(--space-4);
     background: #10b981;
     color: #fff;
     border: none;
-    border-radius: 4px;
-    font-size: 13px;
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-md);
     font-weight: 500;
     cursor: pointer;
     transition: background 0.2s;
@@ -369,12 +435,12 @@ button {
 }
 
 .print-btn {
-    padding: 8px 20px;
+    padding: var(--space-2) var(--space-4);
     background: #6b7280;
     color: #fff;
     border: none;
-    border-radius: 4px;
-    font-size: 13px;
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-md);
     font-weight: 500;
     cursor: pointer;
     transition: background 0.2s;
@@ -385,12 +451,12 @@ button {
 }
 
 .export-img-btn {
-    padding: 8px 20px;
+    padding: var(--space-2) var(--space-4);
     background: #8b5cf6;
     color: #fff;
     border: none;
-    border-radius: 4px;
-    font-size: 13px;
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-md);
     font-weight: 500;
     cursor: pointer;
     transition: background 0.2s;
@@ -400,9 +466,20 @@ button {
     background: #7c3aed;
 }
 
+.payslip-card {
+    /* 工资条卡片贴合表格的实际宽度并水平居中，右侧不再留一大片空白。
+       表格比可用宽度窄时卡片跟着收窄；比可用宽度宽时卡片撑满，
+       横向滚动交给 .payslip-wrapper。
+       水平方向用 auto 居中；上下外边距沿用 .card 的节奏，不要写成 margin: auto。 */
+    width: fit-content;
+    max-width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+}
+
 .payslip-wrapper {
     overflow-x: auto;
-    padding: 8px 0 16px 0;
+    padding: var(--space-2) 0 var(--space-4) 0;
 }
 
 .payslip-wrapper::-webkit-scrollbar {
@@ -412,12 +489,12 @@ button {
 
 .payslip-wrapper::-webkit-scrollbar-track {
     background: #f1f1f1;
-    border-radius: 3px;
+    border-radius: var(--radius-pill);
 }
 
 .payslip-wrapper::-webkit-scrollbar-thumb {
     background: #c1c7cd;
-    border-radius: 3px;
+    border-radius: var(--radius-pill);
 }
 
 .payslip-wrapper::-webkit-scrollbar-thumb:hover {
@@ -426,16 +503,18 @@ button {
 
 .payslip-table {
     border-collapse: collapse;
-    font-size: 13px;
+    font-size: var(--font-size-md);
     background: #fff;
     min-width: max-content;
     width: auto;
+    /* 卡片比表格宽时（窄屏）把表格也居中 */
+    margin: 0 auto;
 }
 
 .payslip-table th,
 .payslip-table td {
     border: 1px solid #1a2332;
-    padding: 6px 8px;
+    padding: var(--space-cell-y) var(--space-cell-x);
     text-align: center;
     vertical-align: middle;
     white-space: nowrap;
@@ -448,8 +527,8 @@ button {
 }
 
 .payslip-table thead tr:first-child th {
-    font-size: 13px;
-    padding: 8px 6px;
+    font-size: var(--font-size-md);
+    padding: var(--space-2) var(--space-head-cell-x);
 }
 
 .payslip-table .col-emp {
@@ -464,13 +543,13 @@ button {
 }
 
 .warn-msg {
-    margin-top: 16px;
-    padding: 8px 16px;
+    margin-top: var(--space-4);
+    padding: var(--space-2) var(--space-4);
     background: #fef2f2;
     border: 1px dashed #fecaca;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     color: #b91c1c;
-    font-size: 12px;
+    font-size: var(--font-size-sm);
     text-align: center;
     letter-spacing: 1px;
 }
@@ -479,111 +558,45 @@ button {
     background: #fef2f2;
     border: 1px solid #fecaca;
     color: #dc2626;
-    padding: 16px;
-    border-radius: 6px;
+    padding: var(--space-4);
+    border-radius: var(--radius-md);
     text-align: center;
-    font-size: 14px;
+    font-size: var(--font-size-base);
+}
+
+/* 提示条：查不到指定月份、已回落到最新工资表时说明 */
+.notice-card {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    color: #1d4ed8;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-base);
+    margin-bottom: var(--space-3);
 }
 
 .empty-hint {
     text-align: center;
-    padding: 48px 20px;
+    padding: var(--space-8) var(--space-5);
     color: #8a99ab;
-}
-
-/* ------------------------------------------------------------
-   管理页
-   ------------------------------------------------------------ */
-
-.stat-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 12px;
-}
-
-.stat-item {
-    background: #f8fafc;
-    border: 1px solid #e8ecf1;
-    border-radius: 6px;
-    padding: 14px 16px;
-}
-
-.stat-label {
-    font-size: 12px;
-    color: #5a6a7a;
-    margin-bottom: 6px;
-}
-
-.stat-value {
-    font-size: 22px;
-    font-weight: 600;
-    color: #1a2332;
-    font-variant-numeric: tabular-nums;
-}
-
-.admin-table {
-    font-size: 12px;
-    width: 100%;
-}
-
-.admin-table th,
-.admin-table td {
-    text-align: left;
-    white-space: nowrap;
-}
-
-.admin-table td:last-child {
-    white-space: normal;
-    min-width: 160px;
-}
-
-.audit-time {
-    font-variant-numeric: tabular-nums;
-    color: #5a6a7a;
-}
-
-.action-tag {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 3px;
-    font-size: 11px;
-    font-weight: 500;
-    line-height: 1.6;
-}
-
-.action-ok {
-    background: #ecfdf5;
-    color: #047857;
-}
-
-.action-view {
-    background: #eff6ff;
-    color: #1d4ed8;
-}
-
-.action-fail {
-    background: #fef2f2;
-    color: #b91c1c;
-}
-
-.action-neutral {
-    background: #f1f5f9;
-    color: #475569;
+    font-size: var(--font-size-xl);
 }
 
 /* ------------------------------------------------------------
    响应式
    ------------------------------------------------------------ */
 
+/* 宽屏：实发工资徽标靠右 */
 @media (min-width: 600px) {
     .salary-badge-wrapper {
         margin-left: auto;
     }
 }
 
+/* 窄屏：控件加大点击区域，布局改单列 */
 @media (max-width: 599px) {
     .login-container {
-        padding: 36px 24px;
+        padding: var(--space-6) var(--space-5);
         width: 100%;
         max-width: 100%;
         border-radius: 0;
@@ -594,37 +607,37 @@ button {
         align-items: flex-start;
     }
     .logo {
-        margin-bottom: 28px;
+        margin-bottom: var(--space-5);
     }
     .login-btn {
-        padding: 14px;
-        font-size: 16px;
+        padding: var(--space-4);
+        font-size: var(--font-size-xl);
     }
     .form-group input {
-        padding: 14px;
-        font-size: 16px;
+        padding: var(--space-4);
+        font-size: var(--font-size-xl);
     }
 
     .container {
-        padding: 0 12px;
-        margin: 12px auto;
+        padding: 0 var(--space-3);
+        margin: var(--space-3) auto;
     }
     .card {
-        padding: 12px;
+        padding: var(--space-3);
     }
     .header {
-        padding: 12px 16px;
+        padding: var(--space-3) var(--space-4);
     }
     .header h1 {
-        font-size: 15px;
+        font-size: var(--font-size-lg);
     }
     .user-info {
-        gap: 10px;
-        font-size: 12px;
+        gap: var(--space-3);
+        font-size: var(--font-size-sm);
     }
     .logout-btn {
-        padding: 4px 10px;
-        font-size: 12px;
+        padding: var(--space-1) var(--space-3);
+        font-size: var(--font-size-sm);
     }
     .query-btn {
         width: 100%;
@@ -636,7 +649,7 @@ button {
     .selector-form {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 8px;
+        gap: var(--space-2);
         width: 100%;
     }
     .selector-form select {
@@ -651,7 +664,7 @@ button {
     }
     .salary-badge-wrapper {
         width: 100%;
-        margin-top: 12px;
+        margin-top: var(--space-3);
         display: flex;
         justify-content: center;
     }
@@ -659,16 +672,33 @@ button {
         flex-direction: column;
         align-items: stretch;
     }
+    /* 窄屏下按钮整行堆叠，避免工具条把卡片撑宽 */
     .btn-group {
-        justify-content: stretch;
+        flex-wrap: wrap;
     }
-    .btn-group .btn {
-        flex: 1;
+    .btn-group > * {
+        flex: 1 1 100%;
     }
+    /* 窄屏下表格整体压缩，让横向滚动条尽量短 */
     .payslip-table th,
-    .payslip-table td {
-        padding: 4px 3px;
-        font-size: 12px;
+    .payslip-table td,
+    .payslip-table thead tr:first-child th {
+        padding: var(--space-1);
+        font-size: var(--font-size-sm);
+    }
+}
+
+/* 超窄屏（≤420px）：进一步压缩留白，彻底杜绝横向溢出 */
+@media (max-width: 420px) {
+    .container {
+        padding: 0 var(--space-2);
+        margin: var(--space-2) auto;
+    }
+    .card {
+        padding: var(--space-2);
+    }
+    .header {
+        padding: var(--space-2) var(--space-3);
     }
 }
 
@@ -693,6 +723,7 @@ button {
     .btn-group {
         display: none !important;
     }
+    /* 打印时新加的间距变量一律归零，避免错位 */
     .container {
         max-width: 100%;
         margin: 0;
@@ -704,14 +735,27 @@ button {
         margin: 0;
         box-shadow: none;
     }
+    /* 屏幕上的 fit-content 会把卡片压到表格宽度，打印要的是整页宽度 */
+    .payslip-card {
+        width: auto;
+        max-width: none;
+        margin: 0;
+    }
     .payslip-wrapper {
         padding: 0;
+        /* 打印不需要滚动，改为撑满纸张宽度 */
+        overflow: visible;
     }
     .payslip-table {
-        font-size: 11px;
+        font-size: var(--font-size-xs);
+        min-width: 0;
+        width: 100%;
     }
     .payslip-table th,
-    .payslip-table td {
-        padding: 3px 4px;
+    .payslip-table td,
+    .payslip-table thead tr:first-child th {
+        padding: var(--space-print-cell-y) var(--space-print-cell-x);
+        /* 允许换行，避免超宽内容被纸张裁掉 */
+        white-space: normal;
     }
 }

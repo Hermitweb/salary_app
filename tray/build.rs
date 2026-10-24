@@ -7,6 +7,7 @@
 fn main() {
     println!("cargo:rerun-if-changed=salary-tray.rc");
     println!("cargo:rerun-if-changed=salary-tray.manifest");
+    println!("cargo:rerun-if-changed=resources/app_icon.ico");
 
     embed_resource::compile("salary-tray.rc", embed_resource::NONE)
         .manifest_required()

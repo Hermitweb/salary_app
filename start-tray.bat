@@ -1,7 +1,13 @@
 @echo off
 REM ============================================================
-REM   员工工资查询系统 - 启动托盘控制面板
-REM   托盘图标右键可以显示面板、启停服务、退出程序
+REM   Salary Query System - start the tray control panel
+REM   Right-click the tray icon to show the panel, start/stop
+REM   the service, or quit.
+REM
+REM   Keep this file ASCII-only: cmd.exe reads .bat files using the
+REM   active OEM code page, and non-ASCII bytes can swallow line
+REM   endings and break the batch. The Chinese messages live in
+REM   scripts\start-tray.ps1, which is UTF-8 with BOM.
 REM ============================================================
 chcp 65001 >nul
 setlocal
@@ -11,7 +17,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start-tray.ps1
 
 if %errorlevel% neq 0 (
     echo.
-    echo 启动失败，请查看上方错误信息。
+    echo Startup failed. Please check the error message above.
     pause
 )
 

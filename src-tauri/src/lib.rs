@@ -2,10 +2,10 @@
 //!
 //! 对外提供 REST API 与前端静态资源托管：
 //! - `/api/auth/login` 登录并签发会话令牌；
+//! - `/api/auth/me` 用令牌换取当前员工信息；
 //! - `/api/available_months` 可查询月份；
 //! - `/api/salary/{year}/{month}` 工资查询（需认证）；
-//! - `/api/cache/*` 缓存管理（管理员）；
-//! - `/api/audit` 操作审计；
+//! - `/api/audit` 前端上报操作事件；
 //! - 其它路径返回前端 SPA。
 //!
 //! 接口细节见 `docs/API.md`。
@@ -157,6 +157,7 @@ pub async fn favicon() -> HttpResponse {
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.route("/healthz", web::get().to(handlers::healthcheck))
         .route("/api/auth/login", web::post().to(handlers::login))
+        .route("/api/auth/me", web::get().to(handlers::whoami))
         .route("/api/logout", web::post().to(handlers::logout))
         .route(
             "/api/available_months",
@@ -168,13 +169,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         )
         // 查询参数形式，兼容 Python 原版的 /api/salary?year=&month=
         .route("/api/salary", web::get().to(handlers::salary_query_params))
-        .route("/api/cache/stats", web::get().to(handlers::cache_stats))
-        .route(
-            "/api/cache/invalidate",
-            web::post().to(handlers::cache_invalidate),
-        )
         .route("/api/audit", web::post().to(handlers::audit_record))
-        .route("/api/audit/log", web::get().to(handlers::audit_log))
         .route("/favicon.ico", web::get().to(favicon))
         .default_service(web::route().to(serve_frontend));
 }

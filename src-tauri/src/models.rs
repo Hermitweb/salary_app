@@ -9,7 +9,6 @@ pub struct Employee {
     pub employee_id: String,
     pub name: Option<String>,
     pub dept: Option<String>,
-    pub is_admin: bool,
 }
 
 /// 登录请求体。
@@ -39,7 +38,6 @@ pub struct SessionToken {
     pub employee_id: String,
     pub name: Option<String>,
     pub dept: Option<String>,
-    pub is_admin: bool,
     /// 过期时间（Unix 秒）
     pub exp: i64,
 }
@@ -49,14 +47,6 @@ pub struct SessionToken {
 pub struct MonthOption {
     pub year: i32,
     pub month: u32,
-}
-
-/// 缓存统计。
-#[derive(Debug, Clone, Serialize)]
-pub struct CacheStats {
-    pub hits: usize,
-    pub misses: usize,
-    pub salary_files_cached: usize,
 }
 
 /// 审计事件。

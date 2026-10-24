@@ -50,7 +50,9 @@ webbrowser = "1.0"
 
 # 读取工资表以获得动态字段列表
 calamine = "0.26"
-chrono = "0.4"
+
+# 登录字段映射的序列化（读写交给后端的同一套结构）
+serde = { version = "1.0", features = ["derive"] }
 
 # 复用后端的路径解析与字段配置逻辑
 salary-app-backend = { path = "../src-tauri" }
@@ -58,6 +60,7 @@ salary-app-backend = { path = "../src-tauri" }
 # 与 NWG 内部同一版本的 Win32 绑定：自绘纯色块窗口类
 winapi = { version = "0.3", features = [
     "basetsd",
+    "dwmapi",
     "errhandlingapi",
     "libloaderapi",
     "minwindef",

@@ -100,28 +100,6 @@ pub fn record(ip: &str, action: &str, employee_id: &str, employee_name: &str, de
     }
 }
 
-/// 读取审计日志的最后若干条记录。
-///
-/// 按写入顺序返回，最新的在最后。解析不了的行会被跳过——
-/// 日志文件可能被外部工具改过，不能因为一行坏掉就整个读不出来。
-pub fn read_recent(path: &Path, limit: usize) -> Vec<AuditEvent> {
-    let Ok(content) = std::fs::read_to_string(path) else {
-        return Vec::new();
-    };
-
-    let mut events: Vec<AuditEvent> = content
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .filter_map(|line| serde_json::from_str::<AuditEvent>(line).ok())
-        .collect();
-
-    if events.len() > limit {
-        events.drain(..events.len() - limit);
-    }
-
-    events
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,35 +160,5 @@ mod tests {
         // 不应 panic
         rotate_if_needed(&path, 1);
         assert!(!path.exists());
-    }
-
-    #[test]
-    fn reads_back_the_latest_entries() {
-        let path = temp_dir().join("read.log");
-
-        let mut content = String::new();
-        for index in 0..5 {
-            let event = AuditEvent {
-                timestamp: format!("2026-10-21T00:00:0{index}Z"),
-                ip: "127.0.0.1".to_string(),
-                action: "VIEW".to_string(),
-                employee_id: format!("{index:03}"),
-                employee_name: "张三".to_string(),
-                detail: String::new(),
-            };
-            content.push_str(&serde_json::to_string(&event).unwrap());
-            content.push('\n');
-        }
-        // 混一行坏数据，读取时应当跳过而不是整体失败
-        content.push_str("not json\n");
-
-        std::fs::write(&path, content).unwrap();
-
-        let events = read_recent(&path, 3);
-        assert_eq!(events.len(), 3);
-        assert_eq!(events[0].employee_id, "002");
-        assert_eq!(events[2].employee_id, "004");
-
-        let _ = std::fs::remove_file(&path);
     }
 }

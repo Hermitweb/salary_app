@@ -155,7 +155,6 @@ pub fn issue_session_token(
         employee_id: employee.employee_id.clone(),
         name: employee.name.clone(),
         dept: employee.dept.clone(),
-        is_admin: employee.is_admin,
         exp: Utc::now().timestamp() + (ttl_minutes as i64) * 60,
     };
 
@@ -244,23 +243,6 @@ impl FromRequest for AuthUser {
     }
 }
 
-/// 管理员提取器：要求 `is_admin` 为真。
-#[derive(Debug, Clone)]
-pub struct AdminUser(pub SessionToken);
-
-impl FromRequest for AdminUser {
-    type Error = Error;
-    type Future = Ready<Result<Self, Self::Error>>;
-
-    fn from_request(req: &HttpRequest, _payload: &mut Payload) -> Self::Future {
-        ready(match resolve_session(req) {
-            Ok(session) if session.is_admin => Ok(AdminUser(session)),
-            Ok(_) => Err(actix_web::error::ErrorForbidden("该操作仅管理员可用")),
-            Err(error) => Err(error),
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -270,7 +252,6 @@ mod tests {
             employee_id: "001".to_string(),
             name: Some("张三".to_string()),
             dept: Some("工程部".to_string()),
-            is_admin: false,
         }
     }
 
@@ -281,8 +262,8 @@ mod tests {
         let session = verify_session_token(&token, key).unwrap();
 
         assert_eq!(session.employee_id, "001");
+        assert_eq!(session.name.as_deref(), Some("张三"));
         assert_eq!(session.dept.as_deref(), Some("工程部"));
-        assert!(!session.is_admin);
     }
 
     #[test]

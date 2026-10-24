@@ -2,112 +2,125 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [master, main]
   pull_request:
-    branches: [ main, master ]
+  workflow_dispatch:
+
+# 同一分支的新提交会取消上一次未跑完的任务
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_VERSION: "1.85"
+  RUST_BACKTRACE: 1
 
 jobs:
-  # 后端：格式、lint、测试、构建
   backend:
-    runs-on: windows-latest
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-action@stable
-      with:
-        toolchain: ${{ env.RUST_VERSION }}
-        components: rustfmt, clippy
-
-    - name: Fetch dependencies
-      run: cargo fetch --locked
-
-    - name: Format check
-      run: cargo fmt --all -- --check
-
-    - name: Clippy
-      run: cargo clippy --workspace --all-targets -- -D warnings
-
-    - name: Generate sample data
-      run: python scripts/generate_sample_data.py --data-dir data --months 3 --employee-fixture src-tauri/tests/fixtures/员工列表-测试用.xlsx
-
-    - name: Verify password hashing script
-      run: python scripts/hash_passwords.py --dry-run
-
-    - name: Run tests
-      run: cargo test --workspace --locked
-
-    - name: Build release binary
-      run: cargo build --release --bin salary-app-backend --locked
-
-    - name: Build release tray
-      run: cargo build --release -p salary-tray --locked
-
-    - name: Upload backend artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: salary-app-backend-windows
-        path: target/release/salary-app-backend.exe
-        retention-days: 7
-
-    - name: Upload tray artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: salary-tray-windows
-        path: target/release/salary-tray.exe
-        retention-days: 7
-
-  # 前端：类型检查与构建
-  frontend:
-    runs-on: windows-latest
-
-    defaults:
-      run:
-        working-directory: src-tauri
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Install Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: 20
-        cache: npm
-        cache-dependency-path: src-tauri/package-lock.json
-
-    - name: Install dependencies
-      run: npm ci
-
-    - name: Type check
-      run: npm run typecheck
-
-    - name: Build
-      run: npm run build
-
-    - name: Upload frontend artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: salary-app-frontend
-        path: src-tauri/dist
-        retention-days: 7
-
-  # 依赖漏洞扫描
-  security:
+    name: 后端与前端（Linux）
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Install Rust
-      uses: dtolnay/rust-action@stable
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
-    - name: Install cargo-audit
-      run: cargo install cargo-audit --locked
+      - name: 缓存 Cargo 依赖
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
-    - name: Audit dependencies
-      run: cargo audit
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 生成示例数据
+        # 集成测试要读 data/salary/ 下的工资表。
+        # 不生成的话，用例会「示例数据缺失」直接跳过——测试是绿的，
+        # 但其实什么都没验证。
+        run: python scripts/generate_sample_data.py
+
+      - name: 格式检查
+        run: cargo fmt --all -- --check
+
+      - name: 文档检查
+        # 链接指向的文件被改名/删掉，是文档最常见的坏法
+        shell: pwsh
+        run: ./scripts/check-docs.ps1
+
+      - name: Lint
+        run: cargo clippy -p salary-app-backend --all-targets -- -D warnings
+
+      - name: 单元测试与集成测试
+        run: cargo test -p salary-app-backend
+
+      - name: 安装前端依赖
+        working-directory: src-tauri
+        run: npm ci
+
+      - name: 前端类型检查
+        working-directory: src-tauri
+        run: npm run typecheck
+
+      - name: 前端构建
+        working-directory: src-tauri
+        run: npm run build
+
+  windows:
+    name: 整仓（Windows）
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: 缓存 Cargo 依赖
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 生成示例数据
+        # 集成测试要读 data/salary/ 下的工资表，理由同上
+        run: python scripts/generate_sample_data.py
+
+      - name: 格式检查
+        run: cargo fmt --all -- --check
+
+      - name: Lint（整仓，含托盘面板）
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: 单元测试与集成测试（整仓）
+        run: cargo test --workspace
+
+      - name: 基准测试可编译
+        # 只编译不跑：基准跑起来要好几分钟，CI 里没必要
+        run: cargo bench --workspace --no-run
+
+      - name: 安装前端依赖
+        working-directory: src-tauri
+        run: npm ci
+
+      - name: 前端构建
+        working-directory: src-tauri
+        run: npm run build

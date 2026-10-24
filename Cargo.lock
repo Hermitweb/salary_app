@@ -2200,11 +2200,11 @@ name = "salary-tray"
 version = "0.1.0"
 dependencies = [
  "calamine",
- "chrono",
  "embed-resource",
  "muda",
  "native-windows-gui",
  "salary-app-backend",
+ "serde",
  "tray-icon",
  "webbrowser",
  "winapi",

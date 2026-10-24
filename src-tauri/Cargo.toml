@@ -13,6 +13,11 @@ path = "src/lib.rs"
 name = "salary-app-backend"
 path = "src/main.rs"
 
+# 性能基准：harness = false，自己计时，不引入 criterion
+[[bench]]
+name = "hot_paths"
+harness = false
+
 [dependencies]
 # Web 服务
 actix-web = { version = "4.9", features = ["rustls-0_23"] }

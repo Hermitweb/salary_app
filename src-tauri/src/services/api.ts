@@ -23,7 +23,6 @@ export interface Employee {
   employee_id: string;
   name?: string;
   dept?: string;
-  is_admin: boolean;
 }
 
 const TOKEN_KEY = 'salary_app_token';
@@ -116,42 +115,14 @@ export interface SalaryQueryResponse {
   headers?: string[];
   values?: string[];
   data?: Record<string, string>;
+  /** 查不到指定月份、已回落到最新工资表时的说明 */
+  notice?: string;
   error?: string;
 }
 
 export interface AvailableMonthsResponse {
   ok: boolean;
   months: MonthOption[];
-  error?: string;
-}
-
-export interface CacheStats {
-  hits: number;
-  misses: number;
-  salary_files_cached: number;
-}
-
-/** 审计事件。 */
-export interface AuditEvent {
-  timestamp: string;
-  ip: string;
-  action: string;
-  employee_id: string;
-  employee_name: string;
-  detail: string;
-}
-
-/** 审计日志响应。 */
-export interface AuditLogResponse {
-  ok: boolean;
-  events: AuditEvent[];
-  error?: string;
-}
-
-/** 缓存统计响应。 */
-export interface CacheStatsResponse {
-  ok: boolean;
-  stats?: CacheStats;
   error?: string;
 }
 
@@ -196,10 +167,7 @@ export const logout = async (): Promise<void> => {
  *
  * 员工身份来自会话令牌，接口不接受工号参数，避免越权查询他人工资。
  */
-export const getSalary = async (
-  year: number,
-  month: number,
-): Promise<SalaryQueryResponse> => {
+export const getSalary = async (year: number, month: number): Promise<SalaryQueryResponse> => {
   if (!AuthTokens.isAuthenticated()) {
     return { ok: false, error: '请先登录 / Please login first' };
   }
@@ -216,6 +184,42 @@ export const getSalary = async (
     }
     throw error;
   }
+};
+
+/**
+ * 用已有令牌换取员工信息。
+ *
+ * 托盘控制面板把凭据交给浏览器时，地址里带的是会话令牌而不是密码，
+ * 前端拿令牌换一次员工信息，姓名、部门才能正常显示。
+ */
+export const fetchMe = async (): Promise<Employee | null> => {
+  try {
+    const response = await api.get<{ ok: boolean; employee?: Employee }>('/api/auth/me');
+    if (response.data.ok && response.data.employee) {
+      AuthTokens.setUser(response.data.employee);
+      return response.data.employee;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * 接管地址栏里的会话令牌。
+ *
+ * 令牌用完立刻从地址栏抹掉，别让它留在浏览器历史里。
+ */
+export const adoptToken = async (token: string): Promise<boolean> => {
+  AuthTokens.setToken(token);
+
+  const employee = await fetchMe();
+  if (!employee) {
+    AuthTokens.clearToken();
+    return false;
+  }
+
+  return true;
 };
 
 /** 获取可查询的工资月份列表。 */
@@ -246,57 +250,6 @@ export const healthCheck = async (): Promise<boolean> => {
     return true;
   } catch {
     return false;
-  }
-};
-
-/** 缓存统计（仅管理员）。 */
-export const getCacheStats = async (): Promise<CacheStatsResponse> => {
-  try {
-    const response = await api.get<CacheStatsResponse>('/api/cache/stats');
-    return response.data;
-  } catch (error) {
-    if (axios.isAxiosError(error)) {
-      return {
-        ok: false,
-        error: error.response?.data?.error || '获取缓存统计失败',
-      };
-    }
-    throw error;
-  }
-};
-
-/** 清空缓存（仅管理员）。 */
-export const invalidateCache = async (): Promise<{ ok: boolean; message?: string; error?: string }> => {
-  try {
-    const response = await api.post<{ ok: boolean; message?: string; error?: string }>(
-      '/api/cache/invalidate',
-    );
-    return response.data;
-  } catch (error) {
-    if (axios.isAxiosError(error)) {
-      return {
-        ok: false,
-        error: error.response?.data?.error || '清空缓存失败',
-      };
-    }
-    throw error;
-  }
-};
-
-/** 获取审计日志（仅管理员）。 */
-export const getAuditLog = async (limit = 100): Promise<AuditLogResponse> => {
-  try {
-    const response = await api.get<AuditLogResponse>(`/api/audit/log?limit=${limit}`);
-    return { ok: response.data.ok, events: response.data.events ?? [] };
-  } catch (error) {
-    if (axios.isAxiosError(error)) {
-      return {
-        ok: false,
-        events: [],
-        error: error.response?.data?.error || '获取审计日志失败',
-      };
-    }
-    throw error;
   }
 };
 

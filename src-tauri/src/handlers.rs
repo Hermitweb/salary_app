@@ -1,7 +1,7 @@
 //! HTTP 处理器。
 
 use crate::audit;
-use crate::auth::{AdminUser, AuthContext, AuthUser};
+use crate::auth::{AuthContext, AuthUser};
 use crate::cache::DataCache;
 use crate::error::AppError;
 use crate::excel_parser::{self, ExcelParser};
@@ -68,7 +68,7 @@ pub fn extract_year_month(filename: &str) -> Option<(i32, u32)> {
 }
 
 /// 工资表目录下的所有 Excel 文件。
-fn salary_files() -> Vec<PathBuf> {
+pub fn salary_files() -> Vec<PathBuf> {
     let dir = paths::salary_dir();
 
     let Ok(entries) = std::fs::read_dir(&dir) else {
@@ -93,9 +93,26 @@ fn salary_files() -> Vec<PathBuf> {
     files
 }
 
+/// 可查询的工资表文件：文件名能解析出年月的那些。
+///
+/// 「算不算一份工资表」只有这一个口径：
+/// 后端按它查工资，托盘控制面板的字段发现与月份统计也按它，
+/// 否则面板列出的字段会和接口实际返回的对不上。
+pub fn queryable_salary_files() -> Vec<PathBuf> {
+    salary_files()
+        .into_iter()
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .and_then(extract_year_month)
+                .is_some()
+        })
+        .collect()
+}
+
 /// 列出所有可查询的月份（倒序）。
-fn list_months() -> Vec<MonthOption> {
-    let mut months: Vec<MonthOption> = salary_files()
+pub fn list_months() -> Vec<MonthOption> {
+    let mut months: Vec<MonthOption> = queryable_salary_files()
         .iter()
         .filter_map(|path| {
             let name = path.file_name()?.to_str()?;
@@ -117,6 +134,24 @@ fn find_salary_file(year: i32, month: u32) -> Option<PathBuf> {
             .and_then(extract_year_month)
             == Some((year, month))
     })
+}
+
+/// 最新的一份工资表（按年月倒序取第一个能解析的）。
+///
+/// 托盘控制面板要用它读取某个员工的某个字段值，
+/// 「最新是哪一份」的口径必须与后端一致，否则面板显示的值和网页端对不上。
+pub fn latest_salary_file() -> Option<(i32, u32, PathBuf)> {
+    let mut files: Vec<(i32, u32, PathBuf)> = salary_files()
+        .into_iter()
+        .filter_map(|path| {
+            let name = path.file_name()?.to_str()?;
+            let (year, month) = extract_year_month(name)?;
+            Some((year, month, path))
+        })
+        .collect();
+
+    files.sort_by_key(|(year, month, _)| (*year, *month));
+    files.pop()
 }
 
 /// 在表头中定位工号列。
@@ -178,7 +213,17 @@ pub async fn login(
 
     let employees = cache.get_employees(&employee_file)?;
 
-    match ExcelParser::authenticate(&employees, &username, body.password.trim()) {
+    // 口令校验要跑 21 万轮 PBKDF2（约 75ms），是整条链路上最贵的一步。
+    // 直接在异步 worker 上跑会把这个 worker 堵住，
+    // 几个并发登录就能让健康检查、查工资这些轻请求排队——挪到阻塞线程池。
+    let plain = body.password.trim().to_string();
+    let login_name = username.clone();
+    let authenticated =
+        web::block(move || ExcelParser::authenticate(&employees, &login_name, &plain))
+            .await
+            .map_err(|error| AppError::InternalError(format!("口令校验失败: {error}")))?;
+
+    match authenticated {
         Ok(employee) => {
             auth.rate_limiter.clear_failures(&ip_key);
             auth.rate_limiter.clear_failures(&user_key);
@@ -229,6 +274,22 @@ pub async fn logout(req: HttpRequest, user: AuthUser) -> HttpResponse {
     );
 
     HttpResponse::Ok().json(serde_json::json!({ "ok": true }))
+}
+
+/// `GET /api/auth/me` —— 当前登录员工是谁。
+///
+/// 托盘控制面板把凭据交给浏览器时，只带会话令牌；
+/// 前端拿到令牌后用这个接口补齐员工信息（姓名、部门），
+/// 这样不用把账号密码塞进 URL。
+pub async fn whoami(user: AuthUser) -> HttpResponse {
+    HttpResponse::Ok().json(serde_json::json!({
+        "ok": true,
+        "employee": {
+            "employee_id": user.0.employee_id,
+            "name": user.0.name,
+            "dept": user.0.dept,
+        },
+    }))
 }
 
 /// `GET /api/available_months` —— 可查询月份列表。
@@ -286,7 +347,23 @@ async fn salary_response(
         return Err(AppError::BadRequest(format!("月份 {month} 超出范围")));
     }
 
-    let file = find_salary_file(year, month).ok_or(AppError::SalaryFileNotFound { year, month })?;
+    // 找不到指定月份就回落到最新的一份工资表，但一定要说清楚：
+    // 不说清楚的话，「查 8 月看到 10 月的数据」会被当成数据错乱。
+    let (file, notice, actual_year, actual_month) = match find_salary_file(year, month) {
+        Some(file) => (file, None, year, month),
+        None => match latest_salary_file() {
+            Some((latest_year, latest_month, file)) => (
+                file,
+                Some(format!(
+                    "未找到 {year} 年 {month:02} 月的工资表，已改为返回 {latest_year} 年 {latest_month:02} 月的数据。"
+                )),
+                latest_year,
+                latest_month,
+            ),
+            None => return Err(AppError::SalaryFileNotFound { year, month }),
+        },
+    };
+
     let (headers, rows) = cache.get_salary(&file)?;
 
     let id_index = find_employee_id_column(&headers)
@@ -295,7 +372,7 @@ async fn salary_response(
 
     let row = find_employee_row(&rows, &id_header, &user.0.employee_id).ok_or_else(|| {
         AppError::EmployeeNotFound(format!(
-            "{} 在 {year} 年 {month} 月没有工资记录",
+            "{} 在 {actual_year} 年 {actual_month} 月没有工资记录",
             user.0.employee_id
         ))
     })?;
@@ -343,59 +420,20 @@ async fn salary_response(
         "VIEW",
         &user.0.employee_id,
         user.0.name.as_deref().unwrap_or(""),
-        &format!("{year}-{month:02}"),
+        &format!("{actual_year}-{actual_month:02}"),
     );
 
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "ok": true,
-        "year": year,
-        "month": month,
+        // 实际返回的是哪个月（回落后可能与请求的不同）
+        "year": actual_year,
+        "month": actual_month,
         "headers": visible_headers,
         "values": visible_values,
         "data": data_map,
+        // 回落提示：没有回落时为 null
+        "notice": notice,
     })))
-}
-
-/// `GET /api/cache/stats` —— 缓存统计（管理员）。
-pub async fn cache_stats(
-    req: HttpRequest,
-    admin: AdminUser,
-    cache: web::Data<DataCache>,
-) -> HttpResponse {
-    audit::record(
-        &client_ip(&req),
-        "CACHE_STATS",
-        &admin.0.employee_id,
-        admin.0.name.as_deref().unwrap_or(""),
-        "查看缓存统计",
-    );
-
-    HttpResponse::Ok().json(serde_json::json!({
-        "ok": true,
-        "stats": cache.stats(),
-    }))
-}
-
-/// `POST /api/cache/invalidate` —— 清空缓存（管理员）。
-pub async fn cache_invalidate(
-    req: HttpRequest,
-    admin: AdminUser,
-    cache: web::Data<DataCache>,
-) -> HttpResponse {
-    cache.invalidate_all();
-
-    audit::record(
-        &client_ip(&req),
-        "CACHE_INVALIDATE",
-        &admin.0.employee_id,
-        admin.0.name.as_deref().unwrap_or(""),
-        "清空缓存",
-    );
-
-    HttpResponse::Ok().json(serde_json::json!({
-        "ok": true,
-        "message": "缓存已清空",
-    }))
 }
 
 /// `POST /api/audit` —— 前端上报操作事件。
@@ -404,39 +442,6 @@ pub struct AuditRequest {
     pub action: String,
     #[serde(default)]
     pub detail: String,
-}
-
-/// `GET /api/audit/log` —— 查看审计日志的查询参数。
-#[derive(serde::Deserialize)]
-pub struct AuditLogQuery {
-    /// 返回最近多少条，默认 100，上限 1000。
-    pub limit: Option<usize>,
-}
-
-/// `GET /api/audit/log` —— 查看审计日志（管理员）。
-///
-/// 审计日志只写进 `data/audit.log`，直接翻文件不方便；
-/// 这个接口把最近若干条解析出来，管理员可以在网页上直接核对谁查看了工资。
-pub async fn audit_log(
-    req: HttpRequest,
-    admin: AdminUser,
-    query: web::Query<AuditLogQuery>,
-) -> HttpResponse {
-    let limit = query.limit.unwrap_or(100).clamp(1, 1000);
-    let events = audit::read_recent(&paths::audit_log_file(), limit);
-
-    audit::record(
-        &client_ip(&req),
-        "AUDIT_VIEW",
-        &admin.0.employee_id,
-        admin.0.name.as_deref().unwrap_or(""),
-        &format!("查看最近 {limit} 条审计记录"),
-    );
-
-    HttpResponse::Ok().json(serde_json::json!({
-        "ok": true,
-        "events": events,
-    }))
 }
 
 /// `POST /api/audit` —— 记录审计事件。

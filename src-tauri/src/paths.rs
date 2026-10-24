@@ -95,11 +95,24 @@ pub fn field_config_file() -> PathBuf {
     data_dir().join("fields.txt")
 }
 
+/// 支持访问的网络配置。
+pub fn network_config_file() -> PathBuf {
+    data_dir().join("networks.txt")
+}
+
 /// 端口配置文件。
 ///
 /// 与 Python 版一致：控制面板把端口写在这里，服务启动时读取。
 pub fn port_file() -> PathBuf {
     data_dir().join("port.txt")
+}
+
+/// 登录字段映射配置文件。
+///
+/// 控制面板把「哪个字段当账号、哪个字段当密码」写在这里，
+/// 登录校验时优先按这份映射找列，找不到再退回关键字探测。
+pub fn login_fields_file() -> PathBuf {
+    data_dir().join("login_fields.json")
 }
 
 /// 用于日志展示的数据目录路径。

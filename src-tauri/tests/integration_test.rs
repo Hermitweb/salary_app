@@ -40,7 +40,9 @@ fn setup() {
     static INIT: std::sync::Once = std::sync::Once::new();
 
     INIT.call_once(|| {
-        let source = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data");
+        // `CARGO_MANIFEST_DIR` 是 src-tauri/，仓库根目录在它上面一级。
+        // 多退一级会指向仓库外面，工资表拷不过来，用例就会静默跳过。
+        let source = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../data");
         let temp = std::env::temp_dir().join("salary-app-integration-test");
 
         let _ = std::fs::remove_dir_all(&temp);
@@ -97,30 +99,14 @@ fn row_credentials(
 }
 
 /// 从员工表里找一个普通员工的登录凭据。
+///
+/// 网页端不再区分管理员，任何在职员工都一样；这里只跳过已停用的账号。
 fn staff_credentials() -> Option<(String, String)> {
     let employees = ExcelParser::load_employees(&paths::employee_file()).ok()?;
 
     for row in &employees.rows {
-        let is_admin = row.values().any(|value| value.trim() == "管理员");
         let is_resigned = row.values().any(|value| value.trim() == "离职");
-        if is_admin || is_resigned {
-            continue;
-        }
-        if let Some(credentials) = row_credentials(&employees, row) {
-            return Some(credentials);
-        }
-    }
-
-    None
-}
-
-/// 从员工表里找一个管理员的登录凭据。
-fn admin_credentials() -> Option<(String, String)> {
-    let employees = ExcelParser::load_employees(&paths::employee_file()).ok()?;
-
-    for row in &employees.rows {
-        let is_admin = row.values().any(|value| value.trim() == "管理员");
-        if !is_admin {
+        if is_resigned {
             continue;
         }
         if let Some(credentials) = row_credentials(&employees, row) {
@@ -248,7 +234,11 @@ async fn protected_endpoints_require_a_token() {
     setup();
     let app = init_app!();
 
-    for uri in ["/api/available_months", "/api/salary/2026/10"] {
+    for uri in [
+        "/api/available_months",
+        "/api/salary/2026/10",
+        "/api/auth/me",
+    ] {
         let request = test::TestRequest::get().uri(uri).to_request();
         let response = test::call_service(&app, request).await;
         assert_eq!(
@@ -257,6 +247,34 @@ async fn protected_endpoints_require_a_token() {
             "{uri} 应当要求认证"
         );
     }
+}
+
+#[actix_web::test]
+async fn me_returns_the_current_employee() {
+    if !sample_data_ready() {
+        eprintln!("示例数据缺失，跳过");
+        return;
+    }
+
+    let Some((employee_id, password)) = staff_credentials() else {
+        eprintln!("员工表中没有可用账号，跳过");
+        return;
+    };
+
+    let app = init_app!();
+    let token = login_token!(&app, &employee_id, &password).expect("登录应当成功");
+
+    let request = test::TestRequest::get()
+        .uri("/api/auth/me")
+        .insert_header(("Authorization", format!("Bearer {token}")))
+        .to_request();
+
+    let response = test::call_service(&app, request).await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["ok"], json!(true));
+    assert_eq!(body["employee"]["employee_id"], json!(employee_id));
 }
 
 #[actix_web::test]
@@ -350,6 +368,47 @@ async fn salary_query_returns_the_employees_own_row() {
 }
 
 #[actix_web::test]
+async fn missing_month_falls_back_to_the_latest_and_says_so() {
+    if !sample_data_ready() {
+        eprintln!("示例数据缺失，跳过");
+        return;
+    }
+
+    let Some((employee_id, password)) = staff_credentials() else {
+        eprintln!("员工表中没有可用账号，跳过");
+        return;
+    };
+
+    let app = init_app!();
+    let token = login_token!(&app, &employee_id, &password).expect("登录应当成功");
+
+    // 找一个不存在的月份：2099 年肯定没有工资表
+    let request = test::TestRequest::get()
+        .uri("/api/salary/2099/1")
+        .insert_header(("Authorization", format!("Bearer {token}")))
+        .to_request();
+
+    let response = test::call_service(&app, request).await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["ok"], json!(true));
+
+    // 回落到最新的一份，并且明确说明实际给的是哪个月
+    let notice = body["notice"].as_str().expect("应当带回落提示");
+    assert!(notice.contains("未找到"), "提示应当说明没找到：{notice}");
+    assert!(
+        notice.contains("已改为返回"),
+        "提示应当说明改成了哪个月：{notice}"
+    );
+
+    // 返回的月份是实际存在的那个月
+    let year = body["year"].as_i64().expect("year 应当是数字");
+    let month = body["month"].as_i64().expect("month 应当是数字");
+    assert_ne!((year, month), (2099, 1), "应当回落到真实存在的月份");
+}
+
+#[actix_web::test]
 async fn salary_query_rejects_invalid_month() {
     if !sample_data_ready() {
         eprintln!("示例数据缺失，跳过");
@@ -436,59 +495,36 @@ async fn salary_query_reports_missing_month() {
         .to_request();
 
     let response = test::call_service(&app, request).await;
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
-}
-
-#[actix_web::test]
-async fn cache_endpoints_require_admin() {
-    if !sample_data_ready() {
-        eprintln!("示例数据缺失，跳过");
-        return;
-    }
-
-    let Some((employee_id, password)) = staff_credentials() else {
-        eprintln!("员工表中没有可用账号，跳过");
-        return;
-    };
-
-    let app = init_app!();
-    let staff_token = login_token!(&app, &employee_id, &password).expect("登录应当成功");
-
-    let request = test::TestRequest::get()
-        .uri("/api/cache/stats")
-        .insert_header(("Authorization", format!("Bearer {staff_token}")))
-        .to_request();
-
-    let response = test::call_service(&app, request).await;
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
-}
-
-#[actix_web::test]
-async fn admin_can_read_cache_stats() {
-    if !sample_data_ready() {
-        eprintln!("示例数据缺失，跳过");
-        return;
-    }
-
-    let Some((employee_id, password)) = admin_credentials() else {
-        eprintln!("员工表中没有管理员账号，跳过");
-        return;
-    };
-
-    let app = init_app!();
-    let admin_token = login_token!(&app, &employee_id, &password).expect("管理员登录应当成功");
-
-    let request = test::TestRequest::get()
-        .uri("/api/cache/stats")
-        .insert_header(("Authorization", format!("Bearer {admin_token}")))
-        .to_request();
-
-    let response = test::call_service(&app, request).await;
+    // 查不到就回落到最新的一份工资表，但必须明确说出来
     assert_eq!(response.status(), StatusCode::OK);
 
     let body: Value = test::read_body_json(response).await;
-    assert!(body["stats"]["hits"].is_number());
-    assert!(body["stats"]["misses"].is_number());
+    let notice = body["notice"].as_str().expect("应当带回落提示");
+    assert!(notice.contains("1999"), "提示应当写明请求的月份：{notice}");
+}
+
+/// 网页端已不再区分管理员，缓存管理与审计日志查阅随之撤下：
+/// 访问这三个接口应当和访问不存在的接口一样返回 404。
+#[actix_web::test]
+async fn removed_admin_endpoints_return_404() {
+    setup();
+    let app = init_app!();
+
+    let stats = test::TestRequest::get()
+        .uri("/api/cache/stats")
+        .to_request();
+    let stats_response = test::call_service(&app, stats).await;
+    assert_eq!(stats_response.status(), StatusCode::NOT_FOUND);
+
+    let invalidate = test::TestRequest::post()
+        .uri("/api/cache/invalidate")
+        .to_request();
+    let invalidate_response = test::call_service(&app, invalidate).await;
+    assert_eq!(invalidate_response.status(), StatusCode::NOT_FOUND);
+
+    let log = test::TestRequest::get().uri("/api/audit/log").to_request();
+    let log_response = test::call_service(&app, log).await;
+    assert_eq!(log_response.status(), StatusCode::NOT_FOUND);
 }
 
 #[actix_web::test]
@@ -546,67 +582,6 @@ async fn unknown_api_route_returns_json_404() {
     let response = test::call_service(&app, request).await;
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
-}
-
-#[actix_web::test]
-async fn audit_log_endpoint_requires_admin() {
-    if !sample_data_ready() {
-        eprintln!("示例数据缺失，跳过");
-        return;
-    }
-
-    let Some((employee_id, password)) = staff_credentials() else {
-        eprintln!("员工表中没有可用账号，跳过");
-        return;
-    };
-
-    let app = init_app!();
-    let staff_token = login_token!(&app, &employee_id, &password).expect("登录应当成功");
-
-    let request = test::TestRequest::get()
-        .uri("/api/audit/log")
-        .insert_header(("Authorization", format!("Bearer {staff_token}")))
-        .to_request();
-
-    let response = test::call_service(&app, request).await;
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
-}
-
-#[actix_web::test]
-async fn admin_can_read_the_audit_log() {
-    if !sample_data_ready() {
-        eprintln!("示例数据缺失，跳过");
-        return;
-    }
-
-    let Some((employee_id, password)) = admin_credentials() else {
-        eprintln!("员工表中没有管理员账号，跳过");
-        return;
-    };
-
-    let app = init_app!();
-    let admin_token = login_token!(&app, &employee_id, &password).expect("管理员登录应当成功");
-
-    let request = test::TestRequest::get()
-        .uri("/api/audit/log?limit=50")
-        .insert_header(("Authorization", format!("Bearer {admin_token}")))
-        .to_request();
-
-    let response = test::call_service(&app, request).await;
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body: Value = test::read_body_json(response).await;
-    assert_eq!(body["ok"], json!(true));
-
-    let events = body["events"].as_array().expect("events 应当是数组");
-    assert!(!events.is_empty(), "刚刚那次登录应当已经写进审计日志");
-
-    // 审计事件要能看出是谁、在什么时间、从哪个 IP 做了什么
-    let first = &events[0];
-    assert!(first["timestamp"].is_string());
-    assert!(first["ip"].is_string());
-    assert!(first["action"].is_string());
-    assert!(first["employee_id"].is_string());
 }
 
 #[actix_web::test]

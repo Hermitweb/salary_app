@@ -61,7 +61,7 @@ CI 会跑同样的检查，任何一项失败都不会合并。
 ## 代码约定
 
 - **错误处理**：后端统一使用 `error::AppError`，`Display` 的文案就是返回给前端的 `error` 字段。写新错误类型时同时更新 `ResponseError::status_code`。
-- **认证**：需要登录的接口在处理器参数里加 `AuthUser`，需要管理员权限的加 `AdminUser`。**不要**用请求参数传工号——员工身份必须来自会话令牌。
+- **认证**：需要登录的接口在处理器参数里加 `AuthUser`。**不要**用请求参数传工号——员工身份必须来自会话令牌。
 - **新增路由**：在 `src-tauri/src/lib.rs` 的 `configure_routes` 里注册，并在 `docs/API.md` 里补充说明。
 - **新增 Excel 字段**：解析逻辑集中在 `excel_parser.rs`，列名识别统一走 `find_column_index`（**先精确匹配、后模糊匹配**），不要在别处再写一份列名判断。
 - **工号匹配**：登录校验和工资查询共用 `excel_parser::ids_match`，不要改成严格字符串相等——两张表里工号可能一个是数字、一个是文本。
@@ -87,7 +87,7 @@ CI 会跑同样的检查，任何一项失败都不会合并。
 | `src-tauri/src/excel_parser.rs` | Excel 解析 |
 | `src-tauri/src/cache.rs` | 按 mtime 失效的缓存 |
 | `src-tauri/src/paths.rs` | 数据目录与前端产物目录解析 |
-| `src-tauri/src/pages/` | 前端页面（登录页 / 工资条页 / 管理页） |
+| `src-tauri/src/pages/` | 前端页面（登录页 / 工资条页） |
 | `src-tauri/src/services/api.ts` | 前端接口层 |
 | `src-tauri/tests/` | 集成测试 |
 | `scripts/hash_passwords.py` | 员工表口令批量哈希（纯标准库） |
