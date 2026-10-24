@@ -1719,13 +1719,18 @@ fn build_layout(model: &Model) -> Layout {
             let card_h = height - card_y - metrics::PAD;
             layout.about_card = Rect::new(content_x, card_y, content_w, card_h);
 
-            // 日志入口（原来的「查看日志」从服务控制页挪到这里）
-            layout.view_log_button = Rect::new(content_x + 24, card_y + ABOUT_LOG_BTN_Y, 168, 36);
+            // 日志按钮：与说明文字同一行、右对齐，不与文字上下叠压
+            layout.view_log_button = Rect::new(
+                content_x + content_w - 24 - 168,
+                card_y + ABOUT_LOG_BTN_Y,
+                168,
+                36,
+            );
 
-            // 项目地址的两个操作按钮
-            layout.about_repo_copy = Rect::new(content_x + 24, card_y + ABOUT_REPO_BTN_Y, 120, 34);
-            layout.about_repo_open =
-                Rect::new(content_x + 24 + 136, card_y + ABOUT_REPO_BTN_Y, 120, 34);
+            // 项目地址的两个操作按钮：与地址同一行、右对齐
+            let open_x = content_x + content_w - 24 - 120;
+            layout.about_repo_open = Rect::new(open_x, card_y + ABOUT_REPO_BTN_Y, 120, 34);
+            layout.about_repo_copy = Rect::new(open_x - 132, card_y + ABOUT_REPO_BTN_Y, 120, 34);
         }
     }
 
@@ -1966,10 +1971,10 @@ const MANUAL: &[(&str, &[(&str, ManualKind)])] = &[
 
 /// 手册正文的排版参数。
 const MANUAL_TOC_W: i32 = 200;
-/// 关于应用页：日志按钮的纵向偏移（相对卡片顶部，与 render_about 对齐）。
-const ABOUT_LOG_BTN_Y: i32 = 486;
-/// 关于应用页：项目地址操作按钮的纵向偏移。
-const ABOUT_REPO_BTN_Y: i32 = 608;
+/// 关于应用页：日志按钮的纵向偏移（相对卡片顶部，与 render_about 的 03 行对齐）。
+const ABOUT_LOG_BTN_Y: i32 = 465;
+/// 关于应用页：项目地址操作按钮的纵向偏移（与 04 行对齐）。
+const ABOUT_REPO_BTN_Y: i32 = 552;
 const MANUAL_LINE_H: i32 = 26;
 const MANUAL_TITLE_H: i32 = 42;
 
@@ -2304,7 +2309,8 @@ fn render_about(
         0,
     );
 
-    // 小节头：编号 + 标题 + 英文小标签
+    // 小节头：编号 + 标题 + 英文小标签。
+    // 英文标签按标题实际宽度紧贴其后，四个小节的间距看起来才一致。
     let section = |y: i32, no: &str, title: &str, eyebrow: &str| {
         paint::text(
             dc,
@@ -2324,9 +2330,10 @@ fn render_about(
             Align::Left,
             0,
         );
+        let title_w = paint::text_width(dc, title, fonts.section());
         paint::text(
             dc,
-            Rect::new(x + 32 + 150, y + 6, 220, 16),
+            Rect::new(x + 32 + title_w + 18, y + 4, 220, 18),
             eyebrow,
             fonts.eyebrow(),
             palette.ink_tertiary,
@@ -2385,9 +2392,9 @@ fn render_about(
 
     // ---- 02 运行环境 ----
     paint::hline(dc, x, card.y + 288, w, palette.hairline);
-    section(card.y + 304, "02", "运行环境", "ENVIRONMENT");
+    section(card.y + 300, "02", "运行环境", "ENVIRONMENT");
     kv(
-        card.y + 336,
+        card.y + 332,
         "版本",
         &format!(
             "面板 v{} · 服务 v{}",
@@ -2396,7 +2403,7 @@ fn render_about(
         ),
     );
     kv(
-        card.y + 364,
+        card.y + 360,
         "数据目录",
         &salary_app_backend::paths::display_data_dir(),
     );
@@ -2409,16 +2416,21 @@ fn render_about(
     } else {
         "服务未启动（在「服务控制」页点「启动服务」）".to_string()
     };
-    kv(card.y + 392, "访问地址", &access);
+    kv(card.y + 388, "访问地址", &access);
 
     // ---- 03 日志 ----
-    paint::hline(dc, x, card.y + 432, w, palette.hairline);
-    section(card.y + 448, "03", "审计日志", "AUDIT LOG");
-    body(
-        card.y + 480,
-        "每次登录与查询都会写入审计日志，超过 5 MB 自动轮转；点下面按钮用记事本打开。",
+    paint::hline(dc, x, card.y + 428, w, palette.hairline);
+    section(card.y + 440, "03", "审计日志", "AUDIT LOG");
+    // 说明与按钮同一行：文字只占左侧，按钮右对齐（位置在 build_layout）
+    paint::text(
+        dc,
+        Rect::new(x, card.y + 470, w - 188, MANUAL_LINE_H),
+        "登录与查询都会写入审计日志，超过 5 MB 自动轮转。",
+        fonts.body(),
+        palette.ink_muted,
+        Align::Left,
+        0,
     );
-    // 按钮位置在 build_layout（ABOUT_LOG_BTN_Y）
     let hovered = model.hover == Some(Hit::ViewLog);
     render_small_button_hover(
         dc,
@@ -2430,17 +2442,23 @@ fn render_about(
     );
 
     // ---- 04 项目地址 ----
-    paint::hline(dc, x, card.y + 542, w, palette.hairline);
-    section(card.y + 558, "04", "项目地址", "REPOSITORY");
+    paint::hline(dc, x, card.y + 514, w, palette.hairline);
+    section(card.y + 526, "04", "项目地址", "REPOSITORY");
+    // 地址与两个按钮同一行：地址占左侧，按钮右对齐（位置在 build_layout）
     if REPO_URL.is_empty() {
-        body(
-            card.y + 590,
+        paint::text(
+            dc,
+            Rect::new(x, card.y + 556, w - 280, MANUAL_LINE_H),
             "尚未配置仓库地址（配置位置：tray/src/canvas.rs 的 REPO_URL）。",
+            fonts.body(),
+            palette.ink_subtle,
+            Align::Left,
+            0,
         );
     } else {
         paint::text(
             dc,
-            Rect::new(x, card.y + 590, w, MANUAL_LINE_H),
+            Rect::new(x, card.y + 556, w - 280, MANUAL_LINE_H),
             REPO_URL,
             fonts.mono(),
             palette.ink,
