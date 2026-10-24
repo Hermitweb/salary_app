@@ -157,15 +157,14 @@ cd ..
 前端没构建时后端会返回一张「前端尚未构建」的提示页（`lib::FRONTEND_MISSING_HTML`），
 服务本身仍然可用。
 
-### 3.4 第 4 步：启动后端
+### 3.4 第 4 步：启动后端（开发调试用）
 
 ```powershell
 # 开发模式
 cargo run --bin salary-app-backend
 
-# 或者用脚本（会自动检查数据目录、构建前端、处理 MSVC 链接器路径）
-scripts\start.ps1
-scripts\start.ps1 -NoBrowser     # 不自动打开浏览器
+# 不想自动打开浏览器时
+$env:SALARY_NO_BROWSER = "1"
 ```
 
 启动后：
@@ -192,15 +191,16 @@ scripts\start.ps1 -NoBrowser     # 不自动打开浏览器
 # 直接跑
 cargo run -p salary-tray
 
-# 或者用脚本（会先编译再启动）
+# 或者用脚本（唯一的启动入口：会准备数据、构建前端、编译再启动）
 scripts\start-tray.ps1
 ```
 
 启动后系统托盘出现一个图标，右键菜单有四项：显示面板 / 启动服务 / 停止服务 / 退出。
 
 > **托盘不会自动启动服务。** 服务由面板里的「启动服务」按钮按需拉起
-> （跑在托盘进程内的独立线程上）。想直接跑服务就用第 3.4 步的方式。
-> 托盘面板也能识别并结束用 `start.bat` 独立启动的服务。
+> （跑在托盘进程内的独立线程上），也不自动开浏览器——
+> 面板的「打开网页」按钮随时可达网页端。
+> 托盘面板也能识别并结束用第 3.4 步方式独立启动的服务。
 
 托盘面板有三个页面：
 
@@ -302,11 +302,9 @@ scripts/build.sh --frontend
 scripts/build.sh --tray
 scripts/build.sh --all
 
-# 一键启动
-scripts\start.ps1              # 准备数据 -> 构建前端 -> 构建后端 -> 启动服务
-scripts\start.ps1 -Release
-scripts\start.ps1 -NoBrowser
-scripts\start-tray.ps1         # 编译并启动托盘控制面板
+# 一键启动（唯一入口：准备数据 -> 构建前端 -> 编译托盘 -> 启动面板）
+scripts\start-tray.ps1
+scripts\start-tray.ps1 -Release
 
 # 一键自检（格式 + lint + 测试 + 前端构建，末尾打印汇总表）
 scripts\verify.ps1
@@ -447,9 +445,9 @@ error: linking with `link.exe` failed:
 
 用 VS Code 保存时选 "Save with encoding: UTF-8 with BOM"。
 
-> 同理，根目录的 `start.bat` / `start-tray.bat` 应当**只含 ASCII**：
+> 同理，根目录的 `start-tray.bat` 应当**只含 ASCII**：
 > `cmd.exe` 按 OEM 代码页读 `.bat`，非 ASCII 字节可能吞掉换行。
-> 中文提示放在 `scripts\start.ps1` 里（UTF-8 with BOM）。
+> 中文提示放在 `scripts\start-tray.ps1` 里（UTF-8 with BOM）。
 
 ### 5.3 控制台中文乱码
 
@@ -460,7 +458,7 @@ Windows 控制台默认代码页是 936（GBK），而 Rust 进程输出的是 U
 # 办法 1：切到 UTF-8 代码页（当前窗口有效）
 chcp 65001
 
-# 办法 2：跑仓库脚本（build.ps1 / start.ps1 / start-tray.ps1 内部已处理）
+# 办法 2：跑仓库脚本（build.ps1 / start-tray.ps1 内部已处理）
 scripts\build.ps1
 
 # 办法 3：PowerShell 里设置输出编码

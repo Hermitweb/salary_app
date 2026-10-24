@@ -29,7 +29,7 @@
 
 ## 1. 服务起不来
 
-**症状：** 双击 `start.bat` 闪退；`cargo run --bin salary-app-backend` 打印
+**症状：** `cargo run --bin salary-app-backend` 打印
 「服务启动失败：…」后退出；托盘面板点「启动服务」后立刻报错。
 
 ### 可能原因
@@ -695,7 +695,7 @@ UTF-8 的中文是 `E4 B8 80` 这种三字节；GBK 是 `D2 BB` 这种两字节�
 # 办法 1：切到 UTF-8（当前窗口有效）
 chcp 65001
 
-# 办法 2：跑仓库脚本（build.ps1 / start.ps1 / start-tray.ps1 内部已处理）
+# 办法 2：跑仓库脚本（build.ps1 / start-tray.ps1 内部已处理）
 scripts\build.ps1
 
 # 办法 3：PowerShell 里设输出编码
@@ -705,12 +705,8 @@ scripts\build.ps1
 **`.ps1` 脚本解析报错** → 用 VS Code 保存为 "UTF-8 with BOM"，
 或用记事本「另存为 → UTF-8」（Windows 10 1903 之后的记事本默认带 BOM）。
 
-**`.bat` 乱码** → 参照 `start.bat` 的做法：`.bat` 里只写 ASCII 注释，
-中文提示放在 `scripts\start.ps1` 里。
-
-> 顺带一提：根目录的 `start-tray.bat` 目前里头的注释是乱码（文件本身存成了
-> UTF-8 但被 `cmd.exe` 按 OEM 代码页读）。它不影响运行（注释而已），
-> 但如果要修，按 `start.bat` 的做法把它改成纯 ASCII 注释即可。
+**`.bat` 乱码** → 参照 `start-tray.bat` 的做法：`.bat` 里只写 ASCII 注释，
+中文提示放在 `scripts\start-tray.ps1` 里。
 
 ---
 
@@ -933,7 +929,7 @@ Get-Process | Where-Object { $_.ProcessName -like "*salary*" } | Select-Object I
 
 ### 托盘面板显示「服务已在运行」，但我明明没启动
 
-可能有一个独立启动的服务进程（比如之前用 `start.bat` 起的）。
+可能有一个独立启动的服务进程（比如之前直接运行过后端 exe）。
 面板的「停止服务」会先 `netstat` 找 PID、再用 `tasklist` 确认进程名**含 `salary`**，
 确认是自己家的人才结束它。端口上是别的程序时它会拒绝并告诉你那是谁。
 

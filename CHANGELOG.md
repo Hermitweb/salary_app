@@ -22,6 +22,15 @@
   所有随字号加高的文本框、按钮与卡片内部间距同步调整，字段页底部提示
   改为两行避免截断，《设计风格规范.md》排版表同步更新。
 
+### Removed
+
+- **网页端一键启动脚本**（`start.bat` 与 `scripts/start.ps1`）。
+  启动整合为唯一入口 `start-tray.bat` / `scripts/start-tray.ps1`：
+  原一键启动的首次准备（示例数据、前端构建、MSVC 链接器修正）
+  合并进托盘启动脚本，服务在面板里点「启动服务」拉起，不再自动打开
+  浏览器（面板的「打开网页」按钮随时可达）。服务器上不跑面板的部署形态
+  仍按 docs/RELEASE.md 直接运行 release exe。
+
 ### Fixed
 
 - **手册页目录的点击态**。目录项原来只有「当前小节换个文字颜色」，
@@ -181,8 +190,8 @@
   直接在 worker 上跑会把这个 worker 堵住，几个并发登录就能让健康检查、
   查工资这些轻请求排队。现在挪到 `web::block` 的阻塞线程池。
 - **`data/fields.txt` 会被 git 跟踪**。它是运行时产物，已加入 `.gitignore`。
-- **`start-tray.bat` 里的中文注释在 cmd.exe 下是乱码**。按 `start.bat`
-  自述的规矩改成纯 ASCII。
+- **`start-tray.bat` 里的中文注释在 cmd.exe 下是乱码**。按仓库 `.bat`
+  只写 ASCII 的规矩改成纯 ASCII。
 
 ---
 

@@ -1,4 +1,4 @@
 {
-  "account_field": "",
-  "password_field": ""
+  "account_field": "工号",
+  "password_field": "手机号"
 }

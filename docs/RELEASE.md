@@ -177,7 +177,7 @@ Copy-Item src-tauri\dist\*                      "$stage\web" -Recurse
 ```
 
 > 直接双击 exe 不会有终端窗口（托盘是 `windows` 子系统；后端是控制台程序，
-> 双击会开一个控制台窗口，要最小化或用 `start.bat`）。
+> 双击会开一个控制台窗口，最小化即可；本机运维建议用 `start-tray.bat`）。
 
 ### 3.3 用环境变量覆盖（特殊情况）
 

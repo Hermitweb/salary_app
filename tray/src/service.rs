@@ -177,7 +177,7 @@ impl ServiceManager {
             return Ok("服务已停止".to_string());
         }
 
-        // 独立启动的（例如用 start.bat 启动的），按端口找到进程再结束
+        // 独立启动的（例如直接运行过后端 exe），按端口找到进程再结束
         if let Some(pid) = find_pid_on_port(self.port) {
             // 端口上可能是别的程序，先确认身份再结束
             let Some(name) = process_name(pid) else {
@@ -214,7 +214,7 @@ impl ServiceManager {
     /// 服务是不是「本该在跑却掉线了」。
     ///
     /// 判据：用户开着服务、运行时已经不在、端口也没人在听。
-    /// 独立启动的服务（用 `start.bat` 起的）端口还在听，不算掉线。
+    /// 独立启动的服务（直接运行后端 exe 起的）端口还在听，不算掉线。
     pub fn dropped(&self) -> bool {
         if !self.expected_running {
             return false;

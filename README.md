@@ -30,26 +30,12 @@ python scripts/generate_sample_data.py --data-dir data
 
 ### 2. 启动
 
-有两种方式，按场景选：
-
-**方式一：直接跑服务**（适合部署在服务器上）
-
-Windows 上双击 `start.bat`，或在任意终端里：
+双击 `start-tray.bat`（唯一的启动入口，首次准备——示例数据、前端构建、
+编译——都会自动做），或在任意终端里：
 
 ```bash
 # PowerShell（Windows）
-scripts/start.ps1
-
-# bash（Git Bash / Linux / macOS）
-scripts/build.sh --all && cargo run --bin salary-app-backend
-```
-
-**方式二：托盘控制面板**（适合本机运维）
-
-双击 `start-tray.bat`，或：
-
-```bash
-cargo run -p salary-tray
+scripts/start-tray.ps1          # -Release 用发布模式
 ```
 
 启动后系统托盘出现一个图标，右键菜单可以：
@@ -77,13 +63,14 @@ cargo run -p salary-tray
 与网页用的 `src-tauri/public/app_icon.png`。
 
 > 服务跑在托盘进程内（独立线程），因此面板启停服务不需要拉起子进程；
-> 如果服务是用 `start.bat` 独立启动的，面板也能识别并结束它。
+> 如果服务是独立进程在跑（比如直接运行了后端 exe），面板也能识别并结束它。
 
-首次启动会自动安装前端依赖、构建前端、编译后端。完成后浏览器会打开：
+面板里点「启动服务」之后，浏览器打开下面的地址即可（面板的「打开网页」
+按钮一键直达；局域网内其它电脑用同一地址）：
 
 | 地址 | 说明 |
 | --- | --- |
-| <http://localhost:5001> | HTTP（局域网内其它电脑也可用这个地址） |
+| <http://localhost:5001> | HTTP |
 | <https://localhost:5002> | HTTPS（自签名证书，首次访问需在浏览器里确认） |
 
 示例数据里的账号（网页端不区分管理员，所有账号权限相同）：
@@ -170,13 +157,11 @@ npm run typecheck  # TypeScript 类型检查
 .
 ├── Cargo.toml                 # workspace 定义
 ├── Cargo.lock                 # 依赖锁定（已纳入版本管理）
-├── start.bat                  # Windows 一键启动服务
-├── start-tray.bat             # Windows 一键启动托盘控制面板
+├── start-tray.bat             # Windows 一键启动（托盘控制面板，服务在面板里启停）
 ├── scripts/
 │   ├── build.sh               # bash 构建脚本（自动修正 MSVC 链接器路径）
 │   ├── build.ps1              # PowerShell 构建脚本
-│   ├── start.ps1              # PowerShell 一键启动服务
-│   ├── start-tray.ps1         # PowerShell 启动托盘控制面板
+│   ├── start-tray.ps1         # PowerShell 启动托盘控制面板（含首次准备）
 │   ├── generate_sample_data.py # 示例数据生成器（仅用标准库）
 │   └── hash_passwords.py      # 员工表口令批量哈希（仅用标准库）
 ├── data/                      # 运行时数据（Excel、证书、密钥、日志）
