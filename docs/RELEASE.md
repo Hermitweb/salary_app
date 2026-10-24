@@ -14,14 +14,14 @@
 
 | 文件 | 字段 | 当前值 | 对应产物 |
 | --- | --- | --- | --- |
-| `src-tauri/Cargo.toml` | `[package] version` | `0.1.0` | `salary-app-backend.exe` |
-| `tray/Cargo.toml` | `[package] version` | `0.1.0` | `salary-tray.exe` |
+| `src-tauri/Cargo.toml` | `[package] version` | `0.2.0` | `salary-app-backend.exe` |
+| `tray/Cargo.toml` | `[package] version` | `0.2.0` | `salary-tray.exe` |
 
 ```toml
 # src-tauri/Cargo.toml
 [package]
 name = "salary-app-backend"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 ```
@@ -30,7 +30,7 @@ rust-version = "1.85"
 # tray/Cargo.toml
 [package]
 name = "salary-tray"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 ```
@@ -108,10 +108,10 @@ LTO 会让编译慢一些，但产物体积和性能都更好。
 ├── salary-tray.exe            ← 托盘面板
 ├── web\                       ← 前端构建产物（src-tauri/dist/ 的内容）
 │   ├── index.html
-│   ├── assets\
-│   │   ├── index-<hash>.js
-│   │   └── index-<hash>.css
-│   └── favicon.svg
+│   ├── app_icon.png           ← 应用图标（favicon 与页面 logo 共用）
+│   └── assets\
+│       ├── index-<hash>.js
+│       └── index-<hash>.css
 └── data\                      ← 数据目录（首次启动自动创建）
     ├── 员工列表.xlsx
     ├── salary\
@@ -302,11 +302,24 @@ Get-ChildItem .\web\assets
 - 登录一次能查到工资条；
 - `data/audit.log` 里出现 `LOGIN` 与 `VIEW` 记录。
 
+> **在构建机上自检要先设环境变量。** `data/` 与 `web/` 的定位规则里，
+> 编译期写进 exe 的仓库路径排在 exe 相对路径前面（见 3.1 的表格）。
+> 在构建机上直接跑打包目录里的 exe，横幅会显示仓库的 `data/`，
+> 而不是打包目录的——这不是打包坏了。用环境变量指过去即可模拟干净机器：
+>
+> ```powershell
+> $env:SALARY_DATA_DIR = "D:\release\salary-app\data"
+> $env:SALARY_WEB_DIR  = "D:\release\salary-app\web"
+> .\salary-app-backend.exe
+> ```
+>
+> 真正的部署机上没有那些编译期路径，exe 会自动用同级目录，无需设置。
+
 ### 5.5 打成压缩包
 
 ```powershell
 $stage = "D:\release\salary-app"
-$zip = "D:\release\salary-app-0.1.0.zip"
+$zip = "D:\release\salary-app-0.2.0.zip"
 Remove-Item $zip -Force -ErrorAction SilentlyContinue
 Compress-Archive -Path "$stage\*" -DestinationPath $zip
 ```
