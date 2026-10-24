@@ -2170,7 +2170,7 @@ checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 
 [[package]]
 name = "salary-app-backend"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "actix-cors",
  "actix-web",
@@ -2198,7 +2198,7 @@ dependencies = [
 
 [[package]]
 name = "salary-tray"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "calamine",
  "embed-resource",

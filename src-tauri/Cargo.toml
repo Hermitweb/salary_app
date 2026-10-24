@@ -1,6 +1,6 @@
 [package]
 name = "salary-app-backend"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 description = "员工工资查询系统 - Rust 后端服务"
 rust-version = "1.85"
