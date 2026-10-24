@@ -146,6 +146,8 @@ pub enum Page {
     Fields,
     /// 使用手册
     Manual,
+    /// 关于应用
+    About,
 }
 
 /// 可点击区域。
@@ -157,14 +159,20 @@ pub enum Hit {
     NavFields,
     /// 左侧导航：使用手册
     NavManual,
+    /// 左侧导航：关于应用
+    NavAbout,
     /// 复制第几条访问地址
     CopyUrl(usize),
     /// 手册目录的第几项
     ManualToc(usize),
     /// 一键复制所有信息
     CopyAll,
-    /// 查看日志
+    /// 查看日志（关于应用页）
     ViewLog,
+    /// 复制项目地址（关于应用页）
+    AboutCopyRepo,
+    /// 在浏览器里打开项目地址（关于应用页）
+    AboutOpenRepo,
     /// 主题切换
     ThemeToggle,
     /// 启动服务
@@ -240,6 +248,10 @@ pub enum Action {
     CopyAll,
     /// 查看审计日志
     ViewLog,
+    /// 复制项目地址（关于应用页）
+    CopyRepo,
+    /// 在浏览器里打开项目地址（关于应用页）
+    OpenRepo,
     /// 选中某个账号字段
     CredentialSelectAccount(usize),
     /// 选中某个密码字段
@@ -419,7 +431,7 @@ pub struct Layout {
     /// 命中区域（后画的在上，命中测试从后往前找）。
     pub hits: Vec<(Hit, Rect)>,
     /// 导航项
-    pub nav: [Rect; 3],
+    pub nav: [Rect; 4],
     /// 主题切换按钮
     pub theme_button: Rect,
     /// 状态 pill
@@ -456,7 +468,7 @@ pub struct Layout {
     pub network_label: Rect,
     /// 网络条目
     pub network_rows: Vec<Rect>,
-    /// 「查看日志」按钮
+    /// 「查看日志」按钮（关于应用页）
     pub view_log_button: Rect,
     /// 端口输入框
     pub port_edit: Rect,
@@ -474,6 +486,12 @@ pub struct Layout {
     pub field_buttons: Vec<(Hit, Rect)>,
     /// 使用手册卡片
     pub manual_card: Rect,
+    /// 关于应用卡片
+    pub about_card: Rect,
+    /// 关于应用页「复制地址」按钮
+    pub about_repo_copy: Rect,
+    /// 关于应用页「打开主页」按钮
+    pub about_repo_open: Rect,
     /// 使用手册正文区（可滚动）
     pub manual_list: Rect,
     /// 手册目录的标题
@@ -1223,6 +1241,8 @@ unsafe extern "system" fn canvas_proc(
                                 invalidate_region(hwnd, None);
                             }
                         }
+                        // 关于应用页没有可滚动的内容
+                        Page::About => {}
                     }
                 }
                 0
@@ -1256,6 +1276,9 @@ fn action_for(hit: Hit, model: &Model) -> Option<Action> {
         Hit::NavService => Action::Navigate(Page::Service),
         Hit::NavFields => Action::Navigate(Page::Fields),
         Hit::NavManual => Action::Navigate(Page::Manual),
+        Hit::NavAbout => Action::Navigate(Page::About),
+        Hit::AboutCopyRepo => Action::CopyRepo,
+        Hit::AboutOpenRepo => Action::OpenRepo,
         Hit::ThemeToggle => Action::ToggleTheme,
         Hit::Start => Action::Start,
         Hit::Stop => Action::Stop,
@@ -1425,7 +1448,8 @@ fn build_layout(model: &Model) -> Layout {
     layout.nav[0] = Rect::new(20, 112, metrics::SIDEBAR_W - 40, 46);
     layout.nav[1] = Rect::new(20, 168, metrics::SIDEBAR_W - 40, 46);
     layout.nav[2] = Rect::new(20, 224, metrics::SIDEBAR_W - 40, 46);
-    layout.nav_area = Rect::new(0, layout.nav[0].y, metrics::SIDEBAR_W, 162);
+    layout.nav[3] = Rect::new(20, 280, metrics::SIDEBAR_W - 40, 46);
+    layout.nav_area = Rect::new(0, layout.nav[0].y, metrics::SIDEBAR_W, 214);
 
     // 顶栏右侧：主题按钮与状态 pill
     layout.theme_button = Rect::new(width - metrics::PAD - 68, 24, 68, 36);
@@ -1567,21 +1591,13 @@ fn build_layout(model: &Model) -> Layout {
 
             // 底部提示紧跟卡片，间距与其它留白一致；
             // 窗口更高时多出来的空间留在最下面，不把提示和卡片拆开。
-            // 提示行与「查看日志」的高度跟字号缩放走，缩放后文字才不会被裁。
+            // 提示行高度跟字号缩放走，缩放后文字才不会被裁。
             let hint_h = (22.0 * model.font_scale).round() as i32;
-            let log_h = (28.0 * model.font_scale).round() as i32;
             layout.hint = Rect::new(
                 content_x,
                 actions_y + actions_h + metrics::GAP,
-                content_w - 100,
+                content_w,
                 hint_h,
-            );
-            // 「查看日志」放在提示行右侧，不占快捷操作的格子
-            layout.view_log_button = Rect::new(
-                content_x + content_w - 84,
-                actions_y + actions_h + metrics::GAP - 2,
-                84,
-                log_h,
             );
 
             // 下拉弹层：贴着控件往下弹，下面放不下就往上弹
@@ -1696,12 +1712,28 @@ fn build_layout(model: &Model) -> Layout {
                 layout.hits.push((Hit::ManualToc(index), *rect));
             }
         }
+
+        Page::About => {
+            // 关于应用整块铺满内容区；各行的高度见 render_about
+            let card_y = metrics::TOPBAR_H + metrics::PAD;
+            let card_h = height - card_y - metrics::PAD;
+            layout.about_card = Rect::new(content_x, card_y, content_w, card_h);
+
+            // 日志入口（原来的「查看日志」从服务控制页挪到这里）
+            layout.view_log_button = Rect::new(content_x + 24, card_y + ABOUT_LOG_BTN_Y, 168, 36);
+
+            // 项目地址的两个操作按钮
+            layout.about_repo_copy = Rect::new(content_x + 24, card_y + ABOUT_REPO_BTN_Y, 120, 34);
+            layout.about_repo_open =
+                Rect::new(content_x + 24 + 136, card_y + ABOUT_REPO_BTN_Y, 120, 34);
+        }
     }
 
     // 命中区域：后加入的在上层
     layout.hits.push((Hit::NavService, layout.nav[0]));
     layout.hits.push((Hit::NavFields, layout.nav[1]));
     layout.hits.push((Hit::NavManual, layout.nav[2]));
+    layout.hits.push((Hit::NavAbout, layout.nav[3]));
     layout
         .hits
         .push((Hit::CredentialAccount, layout.credential_account));
@@ -1715,6 +1747,12 @@ fn build_layout(model: &Model) -> Layout {
     layout.hits.push((Hit::CopyUrl(0), layout.copy_buttons[0]));
     layout.hits.push((Hit::CopyUrl(1), layout.copy_buttons[1]));
     layout.hits.push((Hit::ViewLog, layout.view_log_button));
+    layout
+        .hits
+        .push((Hit::AboutCopyRepo, layout.about_repo_copy));
+    layout
+        .hits
+        .push((Hit::AboutOpenRepo, layout.about_repo_open));
     layout.hits.push((Hit::ThemeToggle, layout.theme_button));
     for (hit, rect) in &layout.action_buttons {
         layout.hits.push((*hit, *rect));
@@ -1928,6 +1966,10 @@ const MANUAL: &[(&str, &[(&str, ManualKind)])] = &[
 
 /// 手册正文的排版参数。
 const MANUAL_TOC_W: i32 = 200;
+/// 关于应用页：日志按钮的纵向偏移（相对卡片顶部，与 render_about 对齐）。
+const ABOUT_LOG_BTN_Y: i32 = 486;
+/// 关于应用页：项目地址操作按钮的纵向偏移。
+const ABOUT_REPO_BTN_Y: i32 = 608;
 const MANUAL_LINE_H: i32 = 26;
 const MANUAL_TITLE_H: i32 = 42;
 
@@ -2018,7 +2060,7 @@ fn wrap_text(dc: HDC, text: &str, font: HFONT, max_width: i32) -> Vec<String> {
 }
 
 /// 画一整块面板。
-fn render(dc: HDC, model: &Model, fonts: &Fonts, logo: Option<&mut crate::brand::Logo>) {
+fn render(dc: HDC, model: &Model, fonts: &Fonts, mut logo: Option<&mut crate::brand::Logo>) {
     let palette = Palette::of(model.theme);
     let layout = &model.layout;
 
@@ -2029,7 +2071,7 @@ fn render(dc: HDC, model: &Model, fonts: &Fonts, logo: Option<&mut crate::brand:
         palette.canvas,
     );
 
-    render_sidebar(dc, model, fonts, &palette, logo);
+    render_sidebar(dc, model, fonts, &palette, logo.as_deref_mut());
     render_topbar(dc, model, fonts, &palette, layout);
 
     match model.page {
@@ -2040,6 +2082,7 @@ fn render(dc: HDC, model: &Model, fonts: &Fonts, logo: Option<&mut crate::brand:
         }
         Page::Fields => render_fields(dc, model, fonts, &palette, layout),
         Page::Manual => render_manual(dc, model, fonts, &palette, layout),
+        Page::About => render_about(dc, model, fonts, &palette, layout, logo),
     }
 
     // 下拉弹层最后画：它要盖在页面内容上面
@@ -2205,6 +2248,228 @@ fn render_manual(dc: HDC, model: &Model, fonts: &Fonts, palette: &Palette, layou
     }
 }
 
+/// 项目仓库地址（「关于应用」页展示）。
+///
+/// 仓库目前没有配置远程地址：留空时页面显示「未配置」，
+/// 有了实际地址后把这里改成 URL 即可（复制与打开按钮共用它）。
+pub const REPO_URL: &str = "";
+
+/// 关于应用页：项目介绍、运行环境、日志入口与项目地址。
+fn render_about(
+    dc: HDC,
+    model: &Model,
+    fonts: &Fonts,
+    palette: &Palette,
+    layout: &Layout,
+    logo: Option<&mut crate::brand::Logo>,
+) {
+    let card = layout.about_card;
+    paint_card(dc, card, palette);
+    paint_card_title(dc, card, "关于应用", "ABOUT", fonts, palette);
+
+    let x = card.x + 24;
+    let w = card.w - 48;
+
+    // ---- 头部：logo + 应用名 + 版本 ----
+    let mark = Rect::new(x, card.y + 76, 44, 44);
+    match logo {
+        Some(logo) => {
+            logo.update(palette.surface);
+            logo.draw(dc, mark);
+        }
+        None => paint::fill_round(dc, mark, 10, palette.primary),
+    }
+    paint::text(
+        dc,
+        Rect::new(x + 56, card.y + 76, 340, 28),
+        "员工工资查询系统",
+        fonts.section(),
+        palette.ink,
+        Align::Left,
+        0,
+    );
+    paint::text(
+        dc,
+        Rect::new(x + 56, card.y + 106, 360, 18),
+        "SALARY SELF-SERVICE SYSTEM",
+        fonts.eyebrow(),
+        palette.ink_tertiary,
+        Align::Left,
+        1,
+    );
+    paint::text(
+        dc,
+        Rect::new(x + 56, card.y + 130, w - 56, 20),
+        &format!("版本 v{}", env!("CARGO_PKG_VERSION")),
+        fonts.small(),
+        palette.ink_subtle,
+        Align::Left,
+        0,
+    );
+
+    // 小节头：编号 + 标题 + 英文小标签
+    let section = |y: i32, no: &str, title: &str, eyebrow: &str| {
+        paint::text(
+            dc,
+            Rect::new(x, y, 30, 22),
+            no,
+            fonts.small(),
+            palette.primary,
+            Align::Left,
+            0,
+        );
+        paint::text(
+            dc,
+            Rect::new(x + 32, y - 2, 200, 28),
+            title,
+            fonts.section(),
+            palette.ink,
+            Align::Left,
+            0,
+        );
+        paint::text(
+            dc,
+            Rect::new(x + 32 + 150, y + 6, 220, 16),
+            eyebrow,
+            fonts.eyebrow(),
+            palette.ink_tertiary,
+            Align::Left,
+            1,
+        );
+    };
+    // 正文行
+    let body = |y: i32, text: &str| {
+        paint::text(
+            dc,
+            Rect::new(x, y, w, MANUAL_LINE_H),
+            text,
+            fonts.body(),
+            palette.ink_muted,
+            Align::Left,
+            0,
+        );
+    };
+    // 标签 + 值行（运行环境用）
+    let kv = |y: i32, label: &str, value: &str| {
+        paint::text(
+            dc,
+            Rect::new(x, y, 90, MANUAL_LINE_H),
+            label,
+            fonts.small(),
+            palette.ink_tertiary,
+            Align::Left,
+            0,
+        );
+        paint::text(
+            dc,
+            Rect::new(x + 96, y, w - 96, MANUAL_LINE_H),
+            value,
+            fonts.mono(),
+            palette.ink_muted,
+            Align::Left,
+            0,
+        );
+    };
+
+    // ---- 01 项目介绍 ----
+    section(card.y + 164, "01", "项目介绍", "INTRODUCTION");
+    body(
+        card.y + 196,
+        "面向单位内部的工资自助查询服务：员工用工号登录网页，只能看到自己每个月的工资条。",
+    );
+    body(
+        card.y + 222,
+        "后端 Rust + Actix-web，前端 React + TypeScript；数据来自 Excel 员工列表与每月工资表，改表即生效。",
+    );
+    body(
+        card.y + 248,
+        "服务跑在托盘进程内，掉线自动拉起；字段显示策略与登录凭据由面板统一管理。",
+    );
+
+    // ---- 02 运行环境 ----
+    paint::hline(dc, x, card.y + 288, w, palette.hairline);
+    section(card.y + 304, "02", "运行环境", "ENVIRONMENT");
+    kv(
+        card.y + 336,
+        "版本",
+        &format!(
+            "面板 v{} · 服务 v{}",
+            env!("CARGO_PKG_VERSION"),
+            salary_app_backend::VERSION
+        ),
+    );
+    kv(
+        card.y + 364,
+        "数据目录",
+        &salary_app_backend::paths::display_data_dir(),
+    );
+    let access = if model.status.running {
+        if model.status.lan_https_url.is_empty() {
+            model.status.lan_url.clone()
+        } else {
+            format!("{} ｜ {}", model.status.lan_url, model.status.lan_https_url)
+        }
+    } else {
+        "服务未启动（在「服务控制」页点「启动服务」）".to_string()
+    };
+    kv(card.y + 392, "访问地址", &access);
+
+    // ---- 03 日志 ----
+    paint::hline(dc, x, card.y + 432, w, palette.hairline);
+    section(card.y + 448, "03", "审计日志", "AUDIT LOG");
+    body(
+        card.y + 480,
+        "每次登录与查询都会写入审计日志，超过 5 MB 自动轮转；点下面按钮用记事本打开。",
+    );
+    // 按钮位置在 build_layout（ABOUT_LOG_BTN_Y）
+    let hovered = model.hover == Some(Hit::ViewLog);
+    render_small_button_hover(
+        dc,
+        layout.view_log_button,
+        "查看审计日志",
+        fonts,
+        palette,
+        hovered,
+    );
+
+    // ---- 04 项目地址 ----
+    paint::hline(dc, x, card.y + 542, w, palette.hairline);
+    section(card.y + 558, "04", "项目地址", "REPOSITORY");
+    if REPO_URL.is_empty() {
+        body(
+            card.y + 590,
+            "尚未配置仓库地址（配置位置：tray/src/canvas.rs 的 REPO_URL）。",
+        );
+    } else {
+        paint::text(
+            dc,
+            Rect::new(x, card.y + 590, w, MANUAL_LINE_H),
+            REPO_URL,
+            fonts.mono(),
+            palette.ink,
+            Align::Left,
+            0,
+        );
+    }
+    // 按钮位置在 build_layout（ABOUT_REPO_BTN_Y）
+    render_small_button_hover(
+        dc,
+        layout.about_repo_copy,
+        "复制地址",
+        fonts,
+        palette,
+        model.hover == Some(Hit::AboutCopyRepo),
+    );
+    render_small_button_hover(
+        dc,
+        layout.about_repo_open,
+        "打开主页",
+        fonts,
+        palette,
+        model.hover == Some(Hit::AboutOpenRepo),
+    );
+}
+
 /// 左侧导航栏。
 fn render_sidebar(
     dc: HDC,
@@ -2283,6 +2548,13 @@ fn render_sidebar(
             "使用手册",
             "MANUAL",
             Hit::NavManual,
+        ),
+        (
+            model.layout.nav[3],
+            Page::About,
+            "关于应用",
+            "ABOUT",
+            Hit::NavAbout,
         ),
     ];
     for (rect, page, title, eyebrow, nav_hit) in items {
@@ -2389,6 +2661,7 @@ fn render_topbar(dc: HDC, model: &Model, fonts: &Fonts, palette: &Palette, layou
         Page::Service => ("服务控制", "SERVICE CONTROL"),
         Page::Fields => ("字段显示", "FIELD DISPLAY"),
         Page::Manual => ("使用手册", "USER MANUAL"),
+        Page::About => ("关于应用", "ABOUT"),
     };
     paint::text(
         dc,
@@ -2831,9 +3104,6 @@ fn render_service(dc: HDC, model: &Model, fonts: &Fonts, palette: &Palette, layo
         Align::Left,
         0,
     );
-
-    // 查看日志
-    render_small_button(dc, layout.view_log_button, "查看日志", fonts, palette);
 }
 
 /// 字段显示页。
@@ -3253,16 +3523,41 @@ fn render_dropdown(dc: HDC, model: &Model, fonts: &Fonts, palette: &Palette, lay
     }
 }
 
-/// 画一个次级小按钮（复制、查看日志这类）。
+/// 画一个次级小按钮（复制这类）。
 fn render_small_button(dc: HDC, rect: Rect, label: &str, fonts: &Fonts, palette: &Palette) {
-    paint::fill_round(dc, rect, palette.radius_button, palette.surface_raised);
+    render_small_button_hover(dc, rect, label, fonts, palette, false);
+}
+
+/// 画一个带悬停态的次级小按钮。
+fn render_small_button_hover(
+    dc: HDC,
+    rect: Rect,
+    label: &str,
+    fonts: &Fonts,
+    palette: &Palette,
+    hovered: bool,
+) {
+    paint::fill_round(
+        dc,
+        rect,
+        palette.radius_button,
+        if hovered {
+            palette.surface_row
+        } else {
+            palette.surface_raised
+        },
+    );
     paint::stroke_round(dc, rect, palette.radius_button, palette.hairline);
     paint::text(
         dc,
         rect,
         label,
         fonts.small(),
-        palette.ink_muted,
+        if hovered {
+            palette.ink
+        } else {
+            palette.ink_muted
+        },
         Align::Center,
         0,
     );

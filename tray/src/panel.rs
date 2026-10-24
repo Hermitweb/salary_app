@@ -433,6 +433,26 @@ fn handle_action(
             }
         }
 
+        Action::CopyRepo => {
+            let url = crate::canvas::REPO_URL;
+            if url.is_empty() {
+                set_notice(canvas, "尚未配置项目地址", true);
+            } else if crate::clipboard::copy_text(url) {
+                set_notice(canvas, &format!("已复制：{url}"), false);
+            } else {
+                set_notice(canvas, "复制失败，请手动选中地址复制", true);
+            }
+        }
+
+        Action::OpenRepo => {
+            let url = crate::canvas::REPO_URL;
+            if url.is_empty() {
+                set_notice(canvas, "尚未配置项目地址", true);
+            } else {
+                let _ = webbrowser::open(url);
+            }
+        }
+
         Action::RescanFields => {
             load_fields(canvas);
             set_notice(canvas, "已重新扫描工资表字段", false);

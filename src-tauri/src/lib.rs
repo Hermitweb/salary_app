@@ -12,6 +12,9 @@
 
 use actix_web::{HttpResponse, http::header, web};
 
+/// 后端版本号（Cargo 包版本，托盘面板「关于应用」页展示）。
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub mod audit;
 pub mod auth;
 pub mod cache;

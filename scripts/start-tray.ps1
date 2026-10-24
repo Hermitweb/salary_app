@@ -12,7 +12,9 @@
 
 [CmdletBinding()]
 param(
-    [switch]$Release
+    [switch]$Release,
+    # 内部参数：隐藏重拉出来的子进程带着它，避免无限重拉
+    [switch]$Hidden
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,6 +28,35 @@ try {
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 } catch {
     # 某些宿主环境不支持切换编码，忽略即可
+}
+
+# 双击 start-tray.bat 进来的（SALARY_TRAY_NOCONSOLE=1）：把整个
+# 准备/构建/启动过程挪到隐藏窗口里跑，双击带出的命令行窗口随即消失。
+# 开发者在终端里直接跑本脚本没有这个标记，输出照常可见。
+if ($env:SALARY_TRAY_NOCONSOLE -eq "1" -and -not $Hidden) {
+    $childArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"")
+    if ($Release) { $childArgs += '-Release' }
+    $childArgs += '-Hidden'
+    Start-Process powershell.exe -WindowStyle Hidden -ArgumentList $childArgs | Out-Null
+    exit 0
+}
+
+# 隐藏窗口里出错没人看得见：弹窗告知，别让启动失败无声无息。
+# 终端里运行时保持原来的行为（红字输出，退出码 1）。
+trap {
+    if ($Hidden) {
+        try {
+            Add-Type -AssemblyName System.Windows.Forms | Out-Null
+            [System.Windows.Forms.MessageBox]::Show(
+                "启动失败：`n$($_.Exception.Message)",
+                "员工工资查询系统",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
+        } catch {
+            # 连弹窗都出不来就只能静默了
+        }
+    }
+    exit 1
 }
 
 # ---------------------------------------------------------------------------
