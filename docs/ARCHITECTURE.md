@@ -395,8 +395,9 @@ pub fn hit_test(&self, x: i32, y: i32) -> Option<Hit> {
   `DWMWA_BORDER_COLOR`（边框色），以及 `DWMWA_USE_IMMERSIVE_DARK_MODE`。
   Windows 11 能精确指定前三个，Windows 10 最多只能开沉浸式深色模式。
 - `brand` 模块让侧边栏 logo、标题栏图标、任务栏图标、托盘图标共用同一个图形
-  （圆角方块 + 白色 ¥）：`brand::rgba` 逐像素算 RGBA 给图标用，
-  `brand::strokes` 给出笔画坐标给画布自绘的 logo 用，两份实现共用同一份几何数据。
+  （`assets/icon-source.jpg` 生成的应用图标）：图标像素由系统解码
+  （`GetIconInfo` + `GetDIBits`）取成 RGBA，标题栏 / 任务栏直接 `LoadImage`，
+  托盘与侧边栏 logo 复用同一份像素，网页端用同一源图生成的 PNG。
 
 ### 4.7 账号密码：控制面板不查工资，只保管凭据
 
@@ -484,9 +485,10 @@ pub fn hit_test(&self, x: i32, y: i32) -> Option<Hit> {
    而自绘可以精确控制「哪一块脏了就重绘哪一块」，配合双缓冲做到零闪烁。
 4. **没有中间层**。自绘直接走 `WM_PAINT` + `BitBlt`，
    少了一层「DOM → 合成 → 位图」的转换，中间层是界面卡顿的主要来源。
-5. **品牌一致性**。侧边栏 logo、标题栏图标、任务栏图标、托盘图标要合成同一个图形
-   并随主题换色。自绘可以直接复用同一份几何数据（`brand::strokes`）画 logo，
-   同时用同一份数据生成图标位图（`brand::rgba`），做到「看起来是同一个图标」。
+5. **品牌一致性**。侧边栏 logo、标题栏图标、任务栏图标、托盘图标、网页 favicon
+   要合成同一个图形。自绘侧边栏直接贴系统解码好的图标位图
+   （`brand::Logo`），标题栏 / 任务栏 / 托盘用同一份 exe 资源，
+   网页端用同一源图生成的 PNG，做到「看起来是同一个图标」。
 
 代价是所有控件都要自己实现：圆角矩形、发丝线、胶囊按钮、列表滚动、
 文本输入与光标，全部在 `tray/src/paint.rs` 与 `tray/src/canvas.rs` 里手写。

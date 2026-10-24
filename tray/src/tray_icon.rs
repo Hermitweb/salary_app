@@ -4,7 +4,7 @@
 //! 事件通过通道回传给界面线程处理。
 //!
 //! 图标本身来自 [`crate::brand`]，和侧边栏 logo、标题栏图标是同一个图形；
-//! 主题切换时界面会发来新颜色，托盘图标跟着换。
+//! 位图不随主题换色，主题消息只影响资源解不出来时的兜底纯色方块。
 
 use crate::brand;
 use crate::theme::Theme;
@@ -50,7 +50,8 @@ pub enum TrayCommand {
 
 /// 生成托盘图标：与标题栏、任务栏、侧边栏 logo 同一张图。
 ///
-/// 直接用原版的 `app_icon.ico`（内嵌在 exe 里），不再自己画一个，
+/// 直接用内嵌在 exe 里的 `app_icon.ico`（`scripts/sync_app_icon.py`
+/// 从 `assets/icon-source.jpg` 生成），不再自己画一个，
 /// 免得同一个应用出现两套图标。
 fn build_icon(theme: Theme) -> Vec<u8> {
     brand::tray_rgba(brand::module_handle())
@@ -122,8 +123,9 @@ pub fn spawn(sender: Sender<TrayCommand>, theme_receiver: Receiver<Theme>) -> Re
         .build()
         .map_err(|e| format!("无法创建托盘图标: {e}"))?;
 
-    // 主题切换时界面会发来新颜色，托盘图标跟着换，
-    // 这样托盘、标题栏、任务栏、侧边栏 logo 始终是同一个图形。
+    // 主题切换时会重建一次图标。位图本身不随主题换色，
+    // 重建只对资源解不出来时的兜底纯色方块有意义；
+    // 托盘、标题栏、任务栏、侧边栏 logo 用的始终是同一张位图。
     //
     // 托盘图标只能在创建它的线程里用，所以这里就守在当前线程上等消息，
     // 顺带保证图标一直活着。等待期间必须继续泵窗口消息：

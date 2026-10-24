@@ -1,0 +1,10 @@
+// 资源脚本：把应用图标内嵌进后端 exe。
+//
+// 后端常驻后台，任务管理器里看到的是它——不内嵌图标的话，
+// 进程列表里就是一个默认的白色图标。
+// 图标与托盘是同一份（tray/resources/app_icon.ico，由
+// scripts/sync_app_icon.py 从 assets/icon-source.jpg 生成），
+// 保证「同一个应用一套图标」。
+
+#define IDI_APP_ICON 1
+IDI_APP_ICON ICON "../tray/resources/app_icon.ico"

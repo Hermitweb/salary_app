@@ -62,83 +62,8 @@ export function LoginPage() {
       <div className="login-container">
         <div className="logo">
           <div className="logo-icon">
-            <svg
-              width="28"
-              height="28"
-              viewBox="0 0 32 32"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-              aria-hidden="true"
-            >
-              {/* 工资条文档 */}
-              <rect
-                x="5"
-                y="4"
-                width="22"
-                height="24"
-                rx="2.5"
-                fill="#ffffff"
-                stroke="#3b82f6"
-                strokeWidth="1.8"
-              />
-              {/* 文档顶部的横线（标题栏） */}
-              <line
-                x1="9"
-                y1="10"
-                x2="23"
-                y2="10"
-                stroke="#3b82f6"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-              />
-              <line
-                x1="9"
-                y1="14"
-                x2="19"
-                y2="14"
-                stroke="#3b82f6"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-                opacity="0.5"
-              />
-              <line
-                x1="9"
-                y1="17.5"
-                x2="17"
-                y2="17.5"
-                stroke="#3b82f6"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-                opacity="0.5"
-              />
-              {/* ¥ 符号（用路径绘制，避免字体兼容问题） */}
-              <path
-                d="M13 21 L16 23.5 L19 21"
-                stroke="#10b981"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                fill="none"
-              />
-              <line
-                x1="13.2"
-                y1="24.5"
-                x2="18.8"
-                y2="24.5"
-                stroke="#10b981"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-              />
-              <line
-                x1="16"
-                y1="23.5"
-                x2="16"
-                y2="26.5"
-                stroke="#10b981"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-              />
-            </svg>
+            {/* 与任务栏、托盘同一份应用图标（src-tauri/public/app_icon.png） */}
+            <img src="/app_icon.png" alt="" width={40} height={40} aria-hidden="true" />
           </div>
           <h1>工资查询系统</h1>
           <p>Salary Query System</p>

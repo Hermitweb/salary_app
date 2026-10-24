@@ -414,7 +414,10 @@ export function SalaryPage() {
   return (
     <>
       <div className="header no-print">
-        <h1>员工工资查询系统</h1>
+        <div className="header-brand">
+          <img className="header-logo" src="/app_icon.png" alt="" aria-hidden="true" />
+          <h1>员工工资查询系统</h1>
+        </div>
         <div className="user-info">
           <span>{employee?.name ?? ''}</span>
           <button type="button" className="logout-btn" onClick={handleLogout}>

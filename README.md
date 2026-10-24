@@ -71,8 +71,10 @@ cargo run -p salary-tray
 - **使用手册**：面板内自带的使用说明（怎么启动、员工怎么查工资、字段三态、常见问题）。
 
 面板是深浅两套主题（右上角切换），标题栏跟着主题走；
-侧边栏 logo、标题栏图标、任务栏图标、托盘图标用的是**同一张**原版应用图标
-（`tray/resources/app_icon.ico`）。
+侧边栏 logo、标题栏图标、任务栏图标、托盘图标、网页 favicon 与页面 logo
+用的是**同一张**应用图标：源图入库在 `assets/icon-source.jpg`，
+`scripts/sync_app_icon.py` 从它生成托盘用的 `tray/resources/app_icon.ico`
+与网页用的 `src-tauri/public/app_icon.png`。
 
 > 服务跑在托盘进程内（独立线程），因此面板启停服务不需要拉起子进程；
 > 如果服务是用 `start.bat` 独立启动的，面板也能识别并结束它。

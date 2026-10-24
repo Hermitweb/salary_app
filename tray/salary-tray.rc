@@ -4,8 +4,9 @@
 // GetWindowSubclass / SetWindowSubclass 只有 v6 版本才导出，
 // 缺少清单时程序启动会报「无法定位程序入口点 GetWindowSubclass」。
 //
-// 图标是 Python 原版沿用的同一份 app_icon.ico：
-// 标题栏、任务栏、托盘、侧边栏 logo 都用它，保证「同一个应用一套图标」。
+// 图标是新版应用图标（assets/icon-source.jpg 经 scripts/sync_app_icon.py
+// 生成）：标题栏、任务栏、托盘、侧边栏 logo、网页 favicon 都用它，
+// 保证「同一个应用一套图标」。
 
 #include <windows.h>
 

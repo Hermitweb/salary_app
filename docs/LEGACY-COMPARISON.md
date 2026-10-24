@@ -14,7 +14,7 @@
 | `control_panel_pkg/service.py` | 服务启停、**看门狗保活**、自签证书 |
 | `control_panel_pkg/field_config.py` | 字段三态配置读写 |
 | `control_panel_pkg/tray.py` | 托盘图标与菜单 |
-| `app_icon.ico` | 应用图标（6 种尺寸） |
+| `app_icon.ico` | 已由新版图标取代（见下文「图标统一」） |
 | `使用说明书.md` | 面向用户的使用说明 |
 | `tests/` | 11 个 pytest 文件 |
 
@@ -60,7 +60,7 @@
 | 能力 | 原版 | Rust 版 | 状态 |
 | --- | --- | --- | --- |
 | 系统托盘图标 + 菜单 | ✓ | ✓ | 一致 |
-| **图标统一** | 托盘是 PIL 现画的圆、EXE 是 ico 的圆角方块，**两套** | 四处（logo/标题栏/任务栏/托盘）**同一张原版 ico** | **已补齐** |
+| **图标统一** | 托盘是 PIL 现画的圆、EXE 是 ico 的圆角方块，**两套** | 全部入口（logo/标题栏/任务栏/托盘/网页 favicon/后端 exe）**同一张新版图标** | **已补齐并升级** |
 | 服务启停 | ✓ | ✓ | 一致 |
 | 端口修改 | ✓ | ✓ | 一致（Rust 版额外做了范围校验） |
 | 开机自启 | ✓ | ✓ | 一致 |
@@ -127,12 +127,16 @@ Rust 版一直在 5002 提供 HTTPS，但面板上只有 HTTP 地址，运维不
 
 原版自己就不统一：托盘图标是 PIL 现画的蓝色圆圈，EXE 图标是 ico 里的蓝色圆角方块。
 
-本轮把原版的 `app_icon.ico` 作为 Windows 资源内嵌进 exe
-（`scripts/sync_app_icon.py` 负责同步），四处统一用这一张：
+Rust 版改用一张新版应用图标：源图入库在 `assets/icon-source.jpg`，
+`scripts/sync_app_icon.py` 抠掉白底后生成多尺寸 `tray/resources/app_icon.ico`
+（Windows 资源内嵌）与网页用的 `src-tauri/public/app_icon.png`，
+所有入口统一用这一张：
 
 - 标题栏 / 任务栏：从资源 `LoadImage`；
 - 托盘：取系统解码好的图标像素转 RGBA；
-- 侧边栏 logo：同一份像素按主题底色预合成后贴图。
+- 侧边栏 logo：同一份像素按主题底色预合成后贴图；
+- 网页端：favicon 与登录页 / 工资页 logo 用同一份 PNG；
+- 后端 exe：内嵌同一份 ico，任务管理器里不再是默认的白色图标。
 
 > 图标的 PNG 解码交给系统（`GetIconInfo` + `GetDIBits`），
 > 不在 Rust 里另写一套 PNG 解码器。

@@ -105,15 +105,19 @@ button {
 }
 
 .logo-icon {
-    width: 48px;
-    height: 48px;
-    background: #f0f4f8;
-    border-radius: var(--radius-lg);
+    width: 56px;
+    height: 56px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     margin-bottom: var(--space-4);
-    font-size: var(--font-size-3xl);
+}
+
+/* 与任务栏、托盘同一份应用图标 */
+.logo-icon img {
+    width: 100%;
+    height: 100%;
+    display: block;
 }
 
 .logo h1 {
@@ -268,15 +272,18 @@ button {
     overflow-wrap: break-word;
 }
 
-.header h1::before {
-    content: "";
-    display: inline-block;
-    width: 4px;
-    height: 16px;
-    background: #3b82f6;
-    border-radius: var(--radius-xs);
-    margin-right: var(--space-3);
-    vertical-align: middle;
+.header-brand {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+}
+
+/* 与任务栏、托盘同一份应用图标 */
+.header-logo {
+    width: 28px;
+    height: 28px;
+    flex: none;
 }
 
 .user-info {

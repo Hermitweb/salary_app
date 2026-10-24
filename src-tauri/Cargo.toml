@@ -18,6 +18,11 @@ path = "src/main.rs"
 name = "hot_paths"
 harness = false
 
+# 把应用图标内嵌进 exe：后端进程常驻后台，任务管理器里显示的就是它。
+# 资源编译依赖 rc.exe / windres，只在 Windows 上参与构建。
+[target.'cfg(windows)'.build-dependencies]
+embed-resource = "3"
+
 [dependencies]
 # Web 服务
 actix-web = { version = "4.9", features = ["rustls-0_23"] }
