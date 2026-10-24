@@ -16,6 +16,7 @@ use std::sync::mpsc::Sender;
 use winapi::shared::minwindef::{DWORD, LPARAM, LRESULT, UINT, WPARAM};
 use winapi::shared::windef::{HBITMAP, HDC, HFONT, HWND};
 use winapi::um::libloaderapi::GetModuleHandleW;
+use winapi::um::sysinfoapi::GetTickCount;
 use winapi::um::wingdi::{
     BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BitBlt, CreateCompatibleDC, CreateDIBSection,
     DIB_RGB_COLORS, DeleteDC, DeleteObject, IntersectClipRect, SRCCOPY, SelectClipRgn,
@@ -23,12 +24,17 @@ use winapi::um::wingdi::{
 };
 use winapi::um::winuser::{
     BeginPaint, CreateWindowExW, DefWindowProcW, DestroyWindow, EndPaint, GetDC, GetWindowLongPtrW,
-    IDC_HAND, InvalidateRect, LoadCursorW, RegisterClassExW, ReleaseCapture, ReleaseDC, SetCapture,
-    SetCursor, SetFocus, SetWindowLongPtrW, TRACKMOUSEEVENT, TrackMouseEvent, WM_CHAR, WM_DESTROY,
-    WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSELEAVE, WM_MOUSEMOVE,
-    WM_MOUSEWHEEL, WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WM_SETCURSOR, WM_SIZE, WNDCLASSEXW,
-    WS_CHILD, WS_CLIPCHILDREN, WS_VISIBLE,
+    IDC_HAND, InvalidateRect, KillTimer, LoadCursorW, RegisterClassExW, ReleaseCapture, ReleaseDC,
+    SetCapture, SetCursor, SetFocus, SetTimer, SetWindowLongPtrW, TRACKMOUSEEVENT, TrackMouseEvent,
+    WM_CHAR, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSELEAVE,
+    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WM_SETCURSOR, WM_SIZE,
+    WM_TIMER, WNDCLASSEXW, WS_CHILD, WS_CLIPCHILDREN, WS_VISIBLE,
 };
+
+/// 手册目录点击后滚动动画的时长（毫秒）。
+const MANUAL_ANIM_MS: u32 = 260;
+/// 滚动动画用的定时器 ID（本窗口内唯一即可）。
+const MANUAL_ANIM_TIMER: usize = 1;
 
 /// 窗口类名。
 const CLASS_NAME: &str = "SalaryPanelCanvas";
@@ -344,6 +350,9 @@ pub struct Model {
     pub scroll: i32,
     /// 使用手册的滚动偏移（像素）。
     pub manual_scroll: i32,
+    /// 手册的滚动动画：正在从 `from` 缓动到 `to`。
+    /// 点目录触发；滚轮、换页、窗口缩放都会取消它。
+    pub scroll_anim: Option<ScrollAnim>,
     /// 手册的每一行（已折行）
     pub manual_lines: Vec<ManualLine>,
     /// 手册的目录（标题与起始位置）
@@ -384,6 +393,7 @@ impl Default for Model {
             selected: None,
             scroll: 0,
             manual_scroll: 0,
+            scroll_anim: None,
             manual_lines: Vec::new(),
             manual_sections: Vec::new(),
             networks: Vec::new(),
@@ -888,6 +898,10 @@ unsafe extern "system" fn canvas_proc(
                     if width > 0 && height > 0 {
                         (*state).model.size = (width, height);
 
+                        // 布局即将按新尺寸重排，进行中的滚动动画立即作废
+                        (*state).model.scroll_anim = None;
+                        KillTimer(hwnd, MANUAL_ANIM_TIMER);
+
                         // 字号跟着窗口宽度等比缩放：窗口放大文字一起长大，
                         // 封顶 1.4 倍；变化不足 5% 不重建，避免拖拽时频繁抖动。
                         let target =
@@ -993,12 +1007,36 @@ unsafe extern "system" fn canvas_proc(
                     let pressed = (*state).model.pressed.take();
 
                     if let Some(Hit::ManualToc(index)) = hit {
-                        // 目录：跳到对应小节，纯界面状态，不走动作通道。
+                        // 目录：平滑滚到对应小节，纯界面状态，不走动作通道。
                         // 高亮项随滚动位置变化，整个目录都要重绘，
                         // 否则原来那一项的高亮会一直挂着。
                         let model = &mut (*state).model;
                         if let Some(section) = model.manual_sections.get(index) {
-                            model.manual_scroll = section.start;
+                            // 目标可能超出可滚范围（最后几节），按正文实际高度收住
+                            let area = model.layout.manual_list;
+                            let content_h = model
+                                .manual_lines
+                                .last()
+                                .map(|line| line.y + MANUAL_LINE_H)
+                                .unwrap_or(0);
+                            let max_scroll = (content_h - area.h).max(0);
+                            let target = section.start.min(max_scroll);
+                            let from = model.manual_scroll;
+
+                            if (target - from).abs() < 4 {
+                                // 就在原地，直接落位
+                                model.manual_scroll = target;
+                                model.scroll_anim = None;
+                                KillTimer(hwnd, MANUAL_ANIM_TIMER);
+                            } else {
+                                model.scroll_anim = Some(ScrollAnim {
+                                    from,
+                                    to: target,
+                                    started: GetTickCount(),
+                                });
+                                SetTimer(hwnd, MANUAL_ANIM_TIMER, 16, None);
+                            }
+
                             let mut regions = model.layout.manual_toc.clone();
                             regions.push(model.layout.manual_list);
                             invalidate_regions(hwnd, &regions);
@@ -1094,6 +1132,37 @@ unsafe extern "system" fn canvas_proc(
                 0
             }
 
+            WM_TIMER => {
+                // 手册滚动动画的帧推进：每 16ms 一帧，走 easeOutCubic。
+                let state = state_of(hwnd);
+                if !state.is_null() {
+                    let model = &mut (*state).model;
+                    let finished = match model.scroll_anim {
+                        None => true,
+                        Some(anim) => {
+                            let elapsed = GetTickCount().wrapping_sub(anim.started);
+                            let t = (elapsed as f32 / MANUAL_ANIM_MS as f32).min(1.0);
+                            // easeOutCubic：起步快、收尾缓，比匀速跟手
+                            let eased = 1.0 - (1.0 - t).powi(3);
+                            model.manual_scroll =
+                                anim.from + ((anim.to - anim.from) as f32 * eased).round() as i32;
+                            t >= 1.0
+                        }
+                    };
+                    if finished {
+                        if let Some(anim) = model.scroll_anim.take() {
+                            model.manual_scroll = anim.to;
+                        }
+                        KillTimer(hwnd, MANUAL_ANIM_TIMER);
+                    }
+                    // 滚动中每帧都要刷新正文与目录高亮
+                    let mut regions = model.layout.manual_toc.clone();
+                    regions.push(model.layout.manual_list);
+                    invalidate_regions(hwnd, &regions);
+                }
+                0
+            }
+
             WM_MOUSEWHEEL => {
                 let state = state_of(hwnd);
                 if !state.is_null() {
@@ -1123,6 +1192,9 @@ unsafe extern "system" fn canvas_proc(
                         Page::Manual => {
                             if step != 0 {
                                 let model = &mut (*state).model;
+                                // 用户接管滚动，动画立即让位
+                                model.scroll_anim = None;
+                                KillTimer(hwnd, MANUAL_ANIM_TIMER);
                                 // 滚动以像素计，一格滚轮约两行
                                 let next = (model.manual_scroll + step * 60).max(0);
                                 if next != model.manual_scroll {
@@ -1371,7 +1443,7 @@ fn build_layout(model: &Model) -> Layout {
             // 卡高跟字号缩放走：字放大了卡片内容才不会挤在一起
             let kpi_gap = metrics::GAP;
             let kpi_w = (content_w - kpi_gap * 2) / 3;
-            let kpi_h = (124.0 * model.font_scale).round() as i32;
+            let kpi_h = (132.0 * model.font_scale).round() as i32;
             for index in 0..3 {
                 layout.kpi[index] = Rect::new(
                     content_x + index as i32 * (kpi_w + kpi_gap),
@@ -1395,7 +1467,7 @@ fn build_layout(model: &Model) -> Layout {
             // 窗口更高时这一行跟着长高，多出来的空间留在最下面
             let row_h =
                 (height - row_y - metrics::GAP - actions_h - metrics::GAP - 22 - metrics::PAD)
-                    .clamp(232, 420);
+                    .clamp(224, 420);
 
             // 左栏只需要「标签 + 240 宽下拉」，右栏要放完整的局域网地址——
             // 地址被截断就失去意义了，所以右栏拿 56%。
@@ -1413,17 +1485,17 @@ fn build_layout(model: &Model) -> Layout {
             let inner_w = left_w - 48;
 
             layout.credential_account = Rect::new(inner_x + 64, row_y + 68, 240, 34);
-            layout.credential_field = Rect::new(inner_x + 64, row_y + 116, 240, 34);
+            layout.credential_field = Rect::new(inner_x + 64, row_y + 112, 240, 34);
 
-            layout.credential_status = Rect::new(inner_x, row_y + 162, inner_w, 16);
+            layout.credential_status = Rect::new(inner_x, row_y + 158, inner_w, 18);
 
             layout.credential_buttons.push((
                 Hit::CredentialSave,
-                Rect::new(inner_x, row_y + 188, 120, 38),
+                Rect::new(inner_x, row_y + 184, 120, 44),
             ));
             layout.credential_buttons.push((
                 Hit::CredentialReadFields,
-                Rect::new(inner_x + 136, row_y + 188, 120, 38),
+                Rect::new(inner_x + 136, row_y + 184, 120, 44),
             ));
 
             // ---- 访问地址卡 ----
@@ -1465,9 +1537,9 @@ fn build_layout(model: &Model) -> Layout {
             for (index, _) in model.networks.iter().enumerate().take(3) {
                 layout.network_rows.push(Rect::new(
                     network_x,
-                    actions_y + 48 + index as i32 * 24,
+                    actions_y + 46 + index as i32 * 26,
                     204,
-                    20,
+                    22,
                 ));
             }
 
@@ -1486,9 +1558,9 @@ fn build_layout(model: &Model) -> Layout {
                 let row = index / 3;
                 let rect = Rect::new(
                     content_x + 24 + column as i32 * (button_w + button_gap),
-                    actions_y + 68 + row as i32 * 52,
+                    actions_y + 66 + row as i32 * 54,
                     button_w,
-                    42,
+                    46,
                 );
                 layout.action_buttons.push((*hit, rect));
             }
@@ -1550,7 +1622,7 @@ fn build_layout(model: &Model) -> Layout {
 
             // 行数按可用高度算：窗口越高，能看到的字段越多。
             // 下方要给按钮行留出位置。
-            let button_h = 44;
+            let button_h = 46;
             let available = height - card_y - metrics::PAD - button_h - metrics::GAP;
             let rows = ((available - metrics::LIST_HEADER_H - metrics::LIST_FOOTER_H)
                 / metrics::ROW_H)
@@ -1585,14 +1657,14 @@ fn build_layout(model: &Model) -> Layout {
             let button_y = card_y + card_h + metrics::GAP;
             layout
                 .field_buttons
-                .push((Hit::Cycle, Rect::new(content_x, button_y, 148, 42)));
+                .push((Hit::Cycle, Rect::new(content_x, button_y, 148, 46)));
             layout
                 .field_buttons
-                .push((Hit::Save, Rect::new(content_x + 164, button_y, 116, 42)));
+                .push((Hit::Save, Rect::new(content_x + 164, button_y, 116, 46)));
             layout
                 .field_buttons
-                .push((Hit::Rescan, Rect::new(content_x + 296, button_y, 148, 42)));
-            layout.hint = Rect::new(content_x + 460, button_y, content_w - 460, 42);
+                .push((Hit::Rescan, Rect::new(content_x + 296, button_y, 148, 46)));
+            layout.hint = Rect::new(content_x + 460, button_y + 2, content_w - 460, 42);
         }
 
         Page::Manual => {
@@ -1603,7 +1675,7 @@ fn build_layout(model: &Model) -> Layout {
 
             // 左侧目录 + 右侧正文
             let toc_x = content_x + 20;
-            layout.manual_toc_title = Rect::new(toc_x, card_y + 72, MANUAL_TOC_W, 16);
+            layout.manual_toc_title = Rect::new(toc_x, card_y + 72, MANUAL_TOC_W, 18);
             for (index, _) in model.manual_sections.iter().enumerate() {
                 layout.manual_toc.push(Rect::new(
                     toc_x,
@@ -1667,6 +1739,17 @@ fn build_layout(model: &Model) -> Layout {
     }
 
     layout
+}
+
+/// 手册目录点击后的滚动动画参数。
+#[derive(Debug, Clone, Copy)]
+pub struct ScrollAnim {
+    /// 起点偏移
+    pub from: i32,
+    /// 终点偏移
+    pub to: i32,
+    /// 开始时刻（GetTickCount，毫秒）
+    pub started: u32,
 }
 
 /// 手册里一行文字的样式。
@@ -1844,7 +1927,7 @@ const MANUAL: &[(&str, &[(&str, ManualKind)])] = &[
 ];
 
 /// 手册正文的排版参数。
-const MANUAL_TOC_W: i32 = 168;
+const MANUAL_TOC_W: i32 = 200;
 const MANUAL_LINE_H: i32 = 26;
 const MANUAL_TITLE_H: i32 = 42;
 
@@ -1853,7 +1936,7 @@ const MANUAL_TITLE_H: i32 = 42;
 /// 左侧目录 + 右侧正文，正文宽度随卡片一起变；
 /// 右边还要给滚动条和内边距留位置。
 fn manual_text_width(content_w: i32) -> i32 {
-    (content_w - 268).max(240)
+    (content_w - 300).max(240)
 }
 
 /// 把手册折行，并算出每一行的纵向偏移与每个小节的起点。
@@ -2075,7 +2158,7 @@ fn render_manual(dc: HDC, model: &Model, fonts: &Fonts, palette: &Palette, layou
                 );
                 paint::text(
                     dc,
-                    Rect::new(area.x + 32, y, area.w - 32, 24),
+                    Rect::new(area.x + 32, y, area.w - 32, 30),
                     &line.text,
                     fonts.section(),
                     palette.ink,
@@ -2161,7 +2244,7 @@ fn render_sidebar(
 
     paint::text(
         dc,
-        Rect::new(62, 22, 160, 22),
+        Rect::new(62, 20, 160, 28),
         "工资自助系统",
         fonts.section(),
         palette.ink,
@@ -2170,7 +2253,7 @@ fn render_sidebar(
     );
     paint::text(
         dc,
-        Rect::new(62, 44, 170, 14),
+        Rect::new(62, 50, 170, 18),
         "SALARY SELF-SERVICE",
         fonts.eyebrow(),
         palette.ink_tertiary,
@@ -2221,7 +2304,7 @@ fn render_sidebar(
         let text_x = rect.x + 16;
         paint::text(
             dc,
-            Rect::new(text_x, rect.y + 5, rect.w - 20, 18),
+            Rect::new(text_x, rect.y + 3, rect.w - 20, 24),
             title,
             fonts.body_medium(),
             if active {
@@ -2234,7 +2317,7 @@ fn render_sidebar(
         );
         paint::text(
             dc,
-            Rect::new(text_x, rect.y + 24, rect.w - 20, 13),
+            Rect::new(text_x, rect.y + 28, rect.w - 20, 17),
             eyebrow,
             fonts.eyebrow(),
             if active {
@@ -2280,12 +2363,12 @@ fn render_sidebar(
     );
     paint::text(
         dc,
-        Rect::new(card.x + 60, card.y + 38, card.w - 72, 14),
-        "本机运维 LOCAL OPERATOR",
+        Rect::new(card.x + 60, card.y + 38, card.w - 72, 16),
+        "本机运维 OPERATOR",
         fonts.eyebrow(),
         palette.ink_tertiary,
         Align::Left,
-        1,
+        0,
     );
 }
 
@@ -2309,7 +2392,7 @@ fn render_topbar(dc: HDC, model: &Model, fonts: &Fonts, palette: &Palette, layou
     };
     paint::text(
         dc,
-        Rect::new(content_x, 18, 240, 24),
+        Rect::new(content_x, 14, 240, 36),
         title,
         fonts.page_title(),
         palette.ink,
@@ -2318,7 +2401,7 @@ fn render_topbar(dc: HDC, model: &Model, fonts: &Fonts, palette: &Palette, layou
     );
     paint::text(
         dc,
-        Rect::new(content_x, 44, 240, 14),
+        Rect::new(content_x, 52, 240, 18),
         eyebrow,
         fonts.eyebrow(),
         palette.ink_tertiary,
@@ -2460,7 +2543,7 @@ fn render_service(dc: HDC, model: &Model, fonts: &Fonts, palette: &Palette, layo
 
         paint::text(
             dc,
-            Rect::new(rect.x + 24, rect.y + off(18), rect.w - 48, 14),
+            Rect::new(rect.x + 24, rect.y + off(14), rect.w - 48, 18),
             kpi_labels[index].0,
             fonts.eyebrow(),
             palette.ink_tertiary,
@@ -2469,7 +2552,7 @@ fn render_service(dc: HDC, model: &Model, fonts: &Fonts, palette: &Palette, layo
         );
         paint::text(
             dc,
-            Rect::new(rect.x + 24, rect.y + off(36), rect.w - 48, 18),
+            Rect::new(rect.x + 24, rect.y + off(34), rect.w - 48, 24),
             kpi_labels[index].1,
             fonts.body_medium(),
             palette.ink_subtle,
@@ -2480,7 +2563,7 @@ fn render_service(dc: HDC, model: &Model, fonts: &Fonts, palette: &Palette, layo
         let is_mono = index == 1 || index == 2;
         paint::text(
             dc,
-            Rect::new(rect.x + 24, rect.y + off(58), rect.w - 48, 38),
+            Rect::new(rect.x + 24, rect.y + off(60), rect.w - 48, 44),
             &kpi_values[index].0,
             if is_mono {
                 fonts.kpi_mono()
@@ -2494,7 +2577,7 @@ fn render_service(dc: HDC, model: &Model, fonts: &Fonts, palette: &Palette, layo
 
         paint::text(
             dc,
-            Rect::new(rect.x + 24, rect.y + off(98), rect.w - 48, 14),
+            Rect::new(rect.x + 24, rect.y + off(106), rect.w - 48, 18),
             kpi_subs[index].as_str(),
             fonts.eyebrow(),
             palette.ink_tertiary,
@@ -2762,7 +2845,7 @@ fn render_fields(dc: HDC, model: &Model, fonts: &Fonts, palette: &Palette, layou
     if model.fields.is_empty() {
         paint::text(
             dc,
-            Rect::new(card.x + 20, card.y + 80, card.w - 40, 20),
+            Rect::new(card.x + 20, card.y + 80, card.w - 40, 24),
             "还没有找到工资表，先把工资表放进数据目录再点「重新扫描」。",
             fonts.body(),
             palette.ink_subtle,
@@ -2867,14 +2950,24 @@ fn render_fields(dc: HDC, model: &Model, fonts: &Fonts, palette: &Palette, layou
         );
     }
 
+    // 提示分两行：一行装不下整句，字号加大后更是如此
     paint::text(
         dc,
-        layout.hint,
+        Rect::new(layout.hint.x, layout.hint.y, layout.hint.w, 22),
         &format!(
-            "共 {} 个字段，来自 {} 张工资表；选中一行后点「切换状态」在 显示 → 跟随 → 隐藏 之间循环，保存后立即生效。",
+            "共 {} 个字段，来自 {} 张工资表。",
             model.fields.len(),
             model.status.months
         ),
+        fonts.small(),
+        palette.ink_tertiary,
+        Align::Left,
+        0,
+    );
+    paint::text(
+        dc,
+        Rect::new(layout.hint.x, layout.hint.y + 21, layout.hint.w, 22),
+        "选中一行后点「切换状态」循环，保存立即生效。",
         fonts.small(),
         palette.ink_tertiary,
         Align::Left,
@@ -2903,7 +2996,7 @@ fn render_credential_card(
     // ---- 账号 ----
     paint::text(
         dc,
-        Rect::new(label_x, card.y + 72, 52, 16),
+        Rect::new(label_x, card.y + 72, 52, 22),
         "账号",
         fonts.body_medium(),
         palette.ink_muted,
@@ -2912,7 +3005,7 @@ fn render_credential_card(
     );
     paint::text(
         dc,
-        Rect::new(label_x, card.y + 90, 80, 12),
+        Rect::new(label_x, card.y + 92, 80, 16),
         "ACCOUNT",
         fonts.eyebrow(),
         palette.ink_tertiary,
@@ -2949,7 +3042,7 @@ fn render_credential_card(
     // ---- 密码 ----
     paint::text(
         dc,
-        Rect::new(label_x, card.y + 122, 52, 16),
+        Rect::new(label_x, card.y + 120, 52, 22),
         "密码",
         fonts.body_medium(),
         palette.ink_muted,
@@ -2958,7 +3051,7 @@ fn render_credential_card(
     );
     paint::text(
         dc,
-        Rect::new(label_x, card.y + 140, 80, 12),
+        Rect::new(label_x, card.y + 142, 80, 16),
         "PASSWORD",
         fonts.eyebrow(),
         palette.ink_tertiary,
@@ -3195,7 +3288,7 @@ fn paint_card_title(
 ) {
     paint::text(
         dc,
-        Rect::new(card.x + 24, card.y + 18, card.w - 48, 26),
+        Rect::new(card.x + 24, card.y + 18, card.w - 48, 30),
         title,
         fonts.section(),
         palette.ink,
@@ -3204,7 +3297,7 @@ fn paint_card_title(
     );
     paint::text(
         dc,
-        Rect::new(card.x + 24, card.y + 46, card.w - 48, 14),
+        Rect::new(card.x + 24, card.y + 50, card.w - 48, 18),
         eyebrow,
         fonts.eyebrow(),
         palette.ink_tertiary,
@@ -3239,7 +3332,7 @@ fn render_button(
             );
             paint::text(
                 dc,
-                Rect::new(rect.x, rect.y + 5, rect.w, 16),
+                Rect::new(rect.x, rect.y + 4, rect.w, 22),
                 title,
                 fonts.button(palette.dark),
                 [0xff, 0xff, 0xff],
@@ -3248,7 +3341,7 @@ fn render_button(
             );
             paint::text(
                 dc,
-                Rect::new(rect.x, rect.y + 22, rect.w, 12),
+                Rect::new(rect.x, rect.y + 27, rect.w, 16),
                 eyebrow,
                 fonts.eyebrow(),
                 [0xdc, 0xdf, 0xf6],
@@ -3270,7 +3363,7 @@ fn render_button(
             paint::stroke_round(dc, rect, palette.radius_button, palette.hairline);
             paint::text(
                 dc,
-                Rect::new(rect.x, rect.y + 5, rect.w, 16),
+                Rect::new(rect.x, rect.y + 4, rect.w, 22),
                 title,
                 fonts.button(palette.dark),
                 palette.ink,
@@ -3279,7 +3372,7 @@ fn render_button(
             );
             paint::text(
                 dc,
-                Rect::new(rect.x, rect.y + 22, rect.w, 12),
+                Rect::new(rect.x, rect.y + 27, rect.w, 16),
                 eyebrow,
                 fonts.eyebrow(),
                 palette.ink_tertiary,

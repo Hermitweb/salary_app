@@ -257,6 +257,8 @@ fn handle_action(
             guard.update(|model| {
                 model.page = page;
                 model.scroll = 0;
+                // 滚动动画只属于手册页；换页后让位（WM_TIMER 下一帧会自行清理定时器）
+                model.scroll_anim = None;
             });
             // 换页只影响顶栏标题、左侧导航的选中态和内容区
             let layout = &guard.model().layout;

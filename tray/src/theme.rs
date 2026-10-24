@@ -233,9 +233,9 @@ fn resolve_family(candidates: &'static [&'static str]) -> &'static str {
 
 /// 面板用到的字体。
 ///
-/// 字号阶梯对齐规范的排版表并在其上加了一档保证可读性
-/// （正文 15 / 次级 14 / KPI 32 / 标号 14 等宽 / 小标签 12）；
-/// 面板比规范里的 1440 桌面小，KPI 数字相应收到 32。
+/// 字号阶梯对齐规范的排版表并在其上整体加大，保证小窗口可读
+/// （正文 17 / 次级 16 / KPI 32 / 标号 16 等宽 / 小标签 13）；
+/// 面板比规范里的 1440 桌面小，KPI 数字保持 32。
 ///
 /// 字体句柄要一直有效，所以整个面板生命周期内都由 [`crate::canvas`] 持有。
 pub struct Fonts {
@@ -267,17 +267,17 @@ impl Fonts {
         let px = |size: u32| ((size as f32 * scale).round() as u32).max(1);
 
         Self {
-            page_title: sans_font(sans, px(24), 600),
-            section: sans_font(sans, px(18), 600),
+            page_title: sans_font(sans, px(26), 600),
+            section: sans_font(sans, px(20), 600),
             kpi: sans_font(sans, px(32), 700),
             kpi_mono: mono_font(mono, px(32)),
-            body: sans_font(sans, px(15), 400),
-            body_medium: sans_font(sans, px(15), 500),
-            small: sans_font(sans, px(14), 400),
-            eyebrow: sans_font(sans, px(12), 500),
-            button_dark: sans_font(sans, px(14), 500),
-            button_light: sans_font(sans, px(14), 700),
-            mono: mono_font(mono, px(14)),
+            body: sans_font(sans, px(17), 400),
+            body_medium: sans_font(sans, px(17), 500),
+            small: sans_font(sans, px(16), 400),
+            eyebrow: sans_font(sans, px(13), 500),
+            button_dark: sans_font(sans, px(16), 500),
+            button_light: sans_font(sans, px(16), 700),
+            mono: mono_font(mono, px(16)),
         }
     }
 
