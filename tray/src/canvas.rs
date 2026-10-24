@@ -993,12 +993,15 @@ unsafe extern "system" fn canvas_proc(
                     let pressed = (*state).model.pressed.take();
 
                     if let Some(Hit::ManualToc(index)) = hit {
-                        // 目录：跳到对应小节，纯界面状态，不走动作通道
+                        // 目录：跳到对应小节，纯界面状态，不走动作通道。
+                        // 高亮项随滚动位置变化，整个目录都要重绘，
+                        // 否则原来那一项的高亮会一直挂着。
                         let model = &mut (*state).model;
                         if let Some(section) = model.manual_sections.get(index) {
                             model.manual_scroll = section.start;
-                            let region = model.layout.manual_list;
-                            invalidate_regions(hwnd, &[region]);
+                            let mut regions = model.layout.manual_toc.clone();
+                            regions.push(model.layout.manual_list);
+                            invalidate_regions(hwnd, &regions);
                         }
                     } else if pressed == Some(Hit::PortField) && hit == Some(Hit::PortField) {
                         // 点端口输入框是进入编辑，不是立刻应用
@@ -1124,8 +1127,10 @@ unsafe extern "system" fn canvas_proc(
                                 let next = (model.manual_scroll + step * 60).max(0);
                                 if next != model.manual_scroll {
                                     model.manual_scroll = next;
-                                    let region = model.layout.manual_list;
-                                    invalidate_regions(hwnd, &[region]);
+                                    // 目录高亮跟随正文位置，目录行也要重绘
+                                    let mut regions = model.layout.manual_toc.clone();
+                                    regions.push(model.layout.manual_list);
+                                    invalidate_regions(hwnd, &regions);
                                 }
                             }
                         }
@@ -1994,9 +1999,25 @@ fn render_manual(dc: HDC, model: &Model, fonts: &Fonts, palette: &Palette, layou
             break;
         };
         let active = index == current;
+        let hovered = model.hover == Some(Hit::ManualToc(index));
+        let pressed = model.pressed == Some(Hit::ManualToc(index));
+
+        // 与侧边栏导航同一套语言：选中给底色 + 左侧强调条，
+        // 悬停给浮层底，按住时按选中画——点下去看得见反馈。
+        if active || pressed {
+            paint::fill_round(dc, *rect, palette.radius_button, palette.surface_row);
+            paint::fill_rect(
+                dc,
+                Rect::new(rect.x, rect.y + 5, 3, rect.h - 10),
+                palette.primary,
+            );
+        } else if hovered {
+            paint::fill_round(dc, *rect, palette.radius_button, palette.surface_raised);
+        }
+
         paint::text(
             dc,
-            Rect::new(rect.x, rect.y, 26, rect.h),
+            Rect::new(rect.x + 10, rect.y, 26, rect.h),
             &format!("{:02}", index + 1),
             fonts.small(),
             palette.primary,
@@ -2005,11 +2026,13 @@ fn render_manual(dc: HDC, model: &Model, fonts: &Fonts, palette: &Palette, layou
         );
         paint::text(
             dc,
-            Rect::new(rect.x + 28, rect.y, rect.w - 28, rect.h),
+            Rect::new(rect.x + 38, rect.y, rect.w - 38, rect.h),
             &section.title,
             fonts.small(),
-            if active {
+            if active || pressed {
                 palette.ink
+            } else if hovered {
+                palette.ink_muted
             } else {
                 palette.ink_tertiary
             },

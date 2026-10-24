@@ -85,8 +85,10 @@ impl Palette {
                 hairline_strong: [0x34, 0x34, 0x3a],
                 ink: [0xf7, 0xf8, 0xf8],
                 ink_muted: [0xd0, 0xd6, 0xe0],
-                ink_subtle: [0x8a, 0x8f, 0x98],
-                ink_tertiary: [0x62, 0x66, 0x6d],
+                // 深底上的灰字要守住可读下限：subtle ≈ 7:1，tertiary ≈ 4.7:1，
+                // 再暗就低于小字号的 AA 标准（正文看起来「发虚、费眼」）。
+                ink_subtle: [0x9b, 0xa1, 0xac],
+                ink_tertiary: [0x77, 0x7d, 0x87],
                 primary: [0x5e, 0x6a, 0xd2],
                 primary_hover: [0x82, 0x8f, 0xff],
                 success: [0x27, 0xa6, 0x44],
@@ -231,8 +233,9 @@ fn resolve_family(candidates: &'static [&'static str]) -> &'static str {
 
 /// 面板用到的字体。
 ///
-/// 字号阶梯对齐规范的排版表（正文 14 / 次级 12 / KPI 30 / 标号 13 等宽）；
-/// 面板比规范里的 1440 桌面小，KPI 数字相应收到 26。
+/// 字号阶梯对齐规范的排版表并在其上加了一档保证可读性
+/// （正文 15 / 次级 14 / KPI 32 / 标号 14 等宽 / 小标签 12）；
+/// 面板比规范里的 1440 桌面小，KPI 数字相应收到 32。
 ///
 /// 字体句柄要一直有效，所以整个面板生命周期内都由 [`crate::canvas`] 持有。
 pub struct Fonts {
@@ -270,8 +273,8 @@ impl Fonts {
             kpi_mono: mono_font(mono, px(32)),
             body: sans_font(sans, px(15), 400),
             body_medium: sans_font(sans, px(15), 500),
-            small: sans_font(sans, px(13), 400),
-            eyebrow: sans_font(sans, px(11), 500),
+            small: sans_font(sans, px(14), 400),
+            eyebrow: sans_font(sans, px(12), 500),
             button_dark: sans_font(sans, px(14), 500),
             button_light: sans_font(sans, px(14), 700),
             mono: mono_font(mono, px(14)),
